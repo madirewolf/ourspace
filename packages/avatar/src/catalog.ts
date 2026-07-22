@@ -1,4 +1,4 @@
-import { pick, type AvatarDoc, type Rng } from "@atrium/core";
+﻿import { pick, type AvatarDoc, type Rng } from "@ourspace/core";
 
 /**
  * Everything an avatar can be. Ids are stable forever — an AvatarDoc written

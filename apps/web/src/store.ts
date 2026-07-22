@@ -1,8 +1,24 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 import { persist, type StateStorage, createJSONStorage } from "zustand/middleware";
-import type { AvatarDoc, ModuleDoc, MoodItem, PhotoItem, ProfileDoc } from "@atrium/core";
+import type { AvatarDoc, ModuleDoc, MoodItem, PhotoItem, ProfileDoc } from "@ourspace/core";
 
-export type Screen = { name: "profile" } | { name: "gallery"; moduleId: string };
+export type Screen =
+  | { name: "profile" }
+  | { name: "gallery"; moduleId: string }
+  | { name: "rave"; moduleId: string }
+  | { name: "discovery"; resume?: boolean }
+  | { name: "visitor"; profileId: string }
+  | { name: "visitorGallery"; profileId: string; moduleId: string }
+  | { name: "visitorRave"; profileId: string; moduleId: string };
+
+export type DiscoveryMode = "all" | "friends" | "similar" | "opposite" | "random" | "new";
+
+interface DiscoveryNavState {
+  mode: DiscoveryMode;
+  query: string;
+  selectedId: string;
+  randomSeed: number;
+}
 
 /* ------------------------------------------------------------------ */
 /* Persistence plumbing.                                               */
@@ -61,7 +77,9 @@ function flushWrite(): void {
 window.addEventListener("beforeunload", flushWrite);
 
 const guardedStorage: StateStorage = {
-  getItem: (name) => window.localStorage.getItem(name),
+  getItem: (name) =>
+    window.localStorage.getItem(name) ??
+    (name === "ourspace-v1" ? window.localStorage.getItem("atrium-v1") : null),
   setItem: (name, value) => {
     if (!writesEnabled) return;
     pendingWrite = { name, value };
@@ -92,10 +110,17 @@ function stripSessionUrls(profile: ProfileDoc): ProfileDoc {
 /* ------------------------------------------------------------------ */
 
 interface AppState {
-  /** null until onboarding finishes — App shows the quiz while null. */
+  /** null until onboarding finishes — App shows the account gateway while null. */
   profile: ProfileDoc | null;
+  /** Local-session affordance until real account auth arrives. */
+  signedOut: boolean;
   screen: Screen;
+  /** Session-only browsing context, preserved while moving through other people's spaces. */
+  discovery: DiscoveryNavState;
   setScreen: (screen: Screen) => void;
+  updateDiscovery: (patch: Partial<DiscoveryNavState>) => void;
+  signIn: () => void;
+  signOut: () => void;
   createProfile: (profile: ProfileDoc) => void;
   updateProfile: (patch: Partial<Omit<ProfileDoc, "modules" | "avatar">>) => void;
   updateAvatar: (avatar: AvatarDoc) => void;
@@ -113,9 +138,19 @@ export const useApp = create<AppState>()(
   persist(
     (set) => ({
       profile: null,
+      signedOut: false,
       screen: { name: "profile" },
+      discovery: {
+        mode: "all",
+        query: "",
+        selectedId: "mara-vale",
+        randomSeed: 0,
+      },
       setScreen: (screen) => set({ screen }),
-      createProfile: (profile) => set({ profile, screen: { name: "profile" } }),
+      updateDiscovery: (patch) => set((state) => ({ discovery: { ...state.discovery, ...patch } })),
+      signIn: () => set({ signedOut: false, screen: { name: "profile" } }),
+      signOut: () => set({ signedOut: true, screen: { name: "profile" } }),
+      createProfile: (profile) => set({ profile, signedOut: false, screen: { name: "profile" } }),
       updateProfile: (patch) =>
         set((s) => (s.profile ? { profile: { ...s.profile, ...patch } } : s)),
       updateAvatar: (avatar) => set((s) => (s.profile ? { profile: { ...s.profile, avatar } } : s)),
@@ -183,9 +218,13 @@ export const useApp = create<AppState>()(
         ),
     }),
     {
-      name: "atrium-v1",
+      // getItem reads the legacy key once so existing local profiles survive the rename.
+      name: "ourspace-v1",
       storage: createJSONStorage(() => guardedStorage),
-      partialize: (s) => ({ profile: s.profile ? stripSessionUrls(s.profile) : null }),
+      partialize: (s) => ({
+        profile: s.profile ? stripSessionUrls(s.profile) : null,
+        signedOut: s.signedOut,
+      }),
     },
   ),
 );

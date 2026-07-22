@@ -1,8 +1,8 @@
-import { useEffect, useRef, type ReactNode } from "react";
+﻿import { useEffect, useRef, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { Group } from "three";
-import { Avatar } from "@atrium/avatar";
-import type { AvatarDoc } from "@atrium/core";
+import { Avatar } from "@ourspace/avatar";
+import type { AvatarDoc } from "@ourspace/core";
 
 /** Aim the default camera at the avatar's middle, whatever the box aspect. */
 function AimCamera({ y }: { y: number }) {
@@ -35,20 +35,26 @@ export interface AvatarStageProps {
 export function AvatarStage({ doc, turntable = false, zoom = "full" }: AvatarStageProps) {
   const camera =
     zoom === "bust"
-      ? { fov: 28, position: [0, 1.3, 2.3] as [number, number, number] }
-      : { fov: 30, position: [0, 1.2, 4.0] as [number, number, number] };
+      ? { fov: 26, position: [0, 1.58, 2.2] as [number, number, number] }
+      : { fov: 29, position: [0, 1.25, 4.35] as [number, number, number] };
 
   return (
-    <Canvas camera={camera} dpr={[1, 1.5]} gl={{ alpha: true, antialias: true }}>
-      <AimCamera y={zoom === "bust" ? 1.2 : 0.78} />
-      <ambientLight intensity={0.85} color="#fff6e8" />
-      <directionalLight position={[3, 5, 4]} intensity={2.1} color="#fff2dd" />
-      <directionalLight position={[-4, 2, -3]} intensity={0.7} color="#bcd0ff" />
+    <Canvas camera={camera} dpr={[1, 1.35]} gl={{ alpha: true, antialias: false }}>
+      <AimCamera y={zoom === "bust" ? 1.56 : 0.94} />
+      <ambientLight intensity={0.62} color="#8ea4ff" />
+      <directionalLight position={[3, 5, 4]} intensity={2.4} color="#f5f1ff" />
+      <directionalLight position={[-4, 2, -3]} intensity={1.1} color="#d83bff" />
       <Turntable enabled={turntable}>
         <Avatar doc={doc} />
         <mesh position={[0, -0.05, 0]}>
           <cylinderGeometry args={[0.85, 0.95, 0.1, 10]} />
-          <meshStandardMaterial color="#e4dcc9" flatShading roughness={0.9} />
+          <meshStandardMaterial
+            color="#151522"
+            emissive="#39185f"
+            emissiveIntensity={0.25}
+            flatShading
+            roughness={0.8}
+          />
         </mesh>
       </Turntable>
     </Canvas>

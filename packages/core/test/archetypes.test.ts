@@ -16,10 +16,11 @@ describe("modulesForCrafts", () => {
     expect(kinds[kinds.length - 1]).toBe("moodboard");
   });
 
-  it("always includes a moodboard", () => {
+  it("always includes a playlist and a moodboard", () => {
     for (const craft of CRAFTS) {
       const modules = modulesForCrafts([craft.id], idMinter());
       expect(modules.some((m) => m.kind === "moodboard")).toBe(true);
+      expect(modules.some((m) => m.kind === "music" && m.title === "Playlist")).toBe(true);
     }
   });
 

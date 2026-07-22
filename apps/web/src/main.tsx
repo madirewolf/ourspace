@@ -1,7 +1,7 @@
-import { StrictMode } from "react";
+﻿import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { createRng } from "@atrium/core";
-import { randomAvatar } from "@atrium/avatar";
+import { createRng } from "@ourspace/core";
+import { randomAvatar } from "@ourspace/avatar";
 import { App } from "./App";
 import { assembleProfile } from "./onboarding/Onboarding";
 import { disableStorageWrites, useApp } from "./store";
@@ -21,8 +21,14 @@ if (params.has("demo")) {
         "Sam Ellery",
         "samellery",
         "I paint small things very large, and sometimes I record the sounds the paintings make.",
-        randomAvatar(createRng("atrium:avatar:v1:samellery")),
+        {
+          ...randomAvatar(createRng("ourspace:avatar:v1:samellery")),
+          hairStyle: "spiky",
+          accessory: "headphones",
+          top: "#8a6fc0",
+        },
         ["visual", "music"],
+        { title: "Neon Receiver — demo signal" },
       ),
     );
   }
