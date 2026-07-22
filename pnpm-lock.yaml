@@ -40,10 +40,10 @@ importers:
 
   apps/web:
     dependencies:
-      '@atrium/avatar':
+      '@ourspace/avatar':
         specifier: workspace:*
         version: link:../../packages/avatar
-      '@atrium/core':
+      '@ourspace/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@react-three/drei':
@@ -83,7 +83,7 @@ importers:
 
   packages/avatar:
     dependencies:
-      '@atrium/core':
+      '@ourspace/core':
         specifier: workspace:*
         version: link:../core
       '@react-three/fiber':

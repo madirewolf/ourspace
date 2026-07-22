@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+﻿import { useRef, useState } from "react";
 import type {
   MoodboardModule,
   MoodItem,
@@ -6,7 +6,7 @@ import type {
   PhotoItem,
   PhotosModule,
   TextModule,
-} from "@atrium/core";
+} from "@ourspace/core";
 import { makeId } from "../ids";
 import { fileToDataUrl } from "../imageUtils";
 import { sampleArt } from "../sampleArt";
@@ -86,7 +86,7 @@ export function PhotosView({ module, editing }: { module: PhotosModule; editing:
                     updateModule({ ...module, items: module.items.filter((i) => i.id !== item.id) })
                   }
                 >
-                  ✕
+                  ×
                 </button>
               )}
             </figure>
@@ -103,7 +103,7 @@ export function PhotosView({ module, editing }: { module: PhotosModule; editing:
             className="btn primary"
             onClick={() => setScreen({ name: "gallery", moduleId: module.id })}
           >
-            🚶 Walk this room
+            Walk this room ↗
           </button>
         )}
         {editing && (
@@ -124,7 +124,7 @@ export function PhotosView({ module, editing }: { module: PhotosModule; editing:
                 ])
               }
             >
-              ✨ Conjure sample art
+              ✦ Conjure sample art
             </button>
           </>
         )}
@@ -136,23 +136,43 @@ export function PhotosView({ module, editing }: { module: PhotosModule; editing:
 
 export function MusicView({ module, editing }: { module: MusicModule; editing: boolean }) {
   const updateModule = useApp((s) => s.updateModule);
+  const setScreen = useApp((s) => s.setScreen);
+  const [linkTitle, setLinkTitle] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const { input, open } = useFilePicker("audio/*", (files) => {
-    const tracks = [...module.tracks];
-    for (const file of files.slice(0, 6)) {
-      tracks.push({
-        id: makeId(),
-        title: file.name.replace(/\.[^.]+$/, ""),
-        src: URL.createObjectURL(file),
-      });
-    }
-    updateModule({ ...module, tracks });
+    const added = files.slice(0, 6).map((file) => ({
+      id: makeId(),
+      title: file.name.replace(/\.[^.]+$/, ""),
+      src: URL.createObjectURL(file),
+    }));
+    updateModule({
+      ...module,
+      tracks: [...module.tracks, ...added],
+      favoriteTrackId: module.favoriteTrackId ?? added[0]?.id,
+    });
   });
 
   const removeTrack = (id: string) => {
     const track = module.tracks.find((t) => t.id === id);
     // Object URLs pin the underlying file in memory until revoked.
     if (track?.src?.startsWith("blob:")) URL.revokeObjectURL(track.src);
-    updateModule({ ...module, tracks: module.tracks.filter((t) => t.id !== id) });
+    updateModule({
+      ...module,
+      tracks: module.tracks.filter((t) => t.id !== id),
+      favoriteTrackId: module.favoriteTrackId === id ? undefined : module.favoriteTrackId,
+    });
+  };
+
+  const addLinkedTrack = () => {
+    if (!linkTitle.trim() || !linkUrl.trim()) return;
+    const id = makeId();
+    updateModule({
+      ...module,
+      tracks: [...module.tracks, { id, title: linkTitle.trim(), src: linkUrl.trim() }],
+      favoriteTrackId: module.favoriteTrackId ?? id,
+    });
+    setLinkTitle("");
+    setLinkUrl("");
   };
 
   return (
@@ -160,23 +180,48 @@ export function MusicView({ module, editing }: { module: MusicModule; editing: b
       {module.tracks.length > 0 ? (
         <ul className="tracks">
           {module.tracks.map((track, i) => (
-            <li key={track.id} className="track">
+            <li
+              key={track.id}
+              className={`track${track.id === module.favoriteTrackId ? " favorite" : ""}`}
+            >
               <span className="track-n">{String(i + 1).padStart(2, "0")}</span>
-              <span className="track-title">{track.title}</span>
+              <span className="track-title">
+                {track.title}
+                {track.id === module.favoriteTrackId && <small>PROFILE SONG</small>}
+              </span>
               {track.src ? (
-                <audio controls src={track.src} preload="none" />
+                <audio controls src={track.src} preload="metadata" />
               ) : (
-                <span className="track-missing">file lives in your last session — re-add it</span>
+                <span className="track-missing">signal unavailable — re-add the file</span>
               )}
               {editing && (
-                <button
-                  type="button"
-                  className="btn tiny"
-                  aria-label="Remove track"
-                  onClick={() => removeTrack(track.id)}
-                >
-                  ✕
-                </button>
+                <div className="track-tools">
+                  <button
+                    type="button"
+                    className={`favorite-button${track.id === module.favoriteTrackId ? " selected" : ""}`}
+                    aria-label={
+                      track.id === module.favoriteTrackId
+                        ? "Remove as profile song"
+                        : "Make profile song"
+                    }
+                    onClick={() =>
+                      updateModule({
+                        ...module,
+                        favoriteTrackId: module.favoriteTrackId === track.id ? undefined : track.id,
+                      })
+                    }
+                  >
+                    ★
+                  </button>
+                  <button
+                    type="button"
+                    className="btn tiny"
+                    aria-label="Remove track"
+                    onClick={() => removeTrack(track.id)}
+                  >
+                    ×
+                  </button>
+                </div>
               )}
             </li>
           ))}
@@ -184,14 +229,51 @@ export function MusicView({ module, editing }: { module: MusicModule; editing: b
       ) : (
         <p className="empty-hint">No sounds yet.</p>
       )}
-      {editing && (
-        <div className="module-actions">
+      <div className="module-actions sound-actions">
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => setScreen({ name: "rave", moduleId: module.id })}
+        >
+          Enter the rave ↗
+        </button>
+        {editing && (
           <button type="button" className="btn small" onClick={open}>
-            + Add audio
+            + Upload audio
           </button>
-          <span className="module-notice quiet">
-            audio stays for this session only until real accounts arrive
-          </span>
+        )}
+      </div>
+      {editing && (
+        <div className="track-linker">
+          <div className="track-linker-head">
+            <span>ADD_STREAM_URL</span>
+            <small>Use a direct .mp3, .wav, or .ogg link.</small>
+          </div>
+          <input
+            value={linkTitle}
+            onChange={(e) => setLinkTitle(e.target.value)}
+            placeholder="Artist — track title"
+            aria-label="Track title"
+          />
+          <input
+            type="url"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            placeholder="https://…/track.mp3"
+            aria-label="Direct audio URL"
+          />
+          <button
+            type="button"
+            className="btn small"
+            onClick={addLinkedTrack}
+            disabled={!linkTitle.trim() || !linkUrl.trim()}
+          >
+            Add track
+          </button>
+          <p className="module-notice quiet">
+            Uploaded files stay for this session until real accounts arrive. ★ marks the song that
+            plays on your profile.
+          </p>
         </div>
       )}
       {input}
@@ -237,7 +319,7 @@ export function MoodboardView({ module, editing }: { module: MoodboardModule; ed
                   aria-label="Remove"
                   onClick={() => remove(item.id)}
                 >
-                  ✕
+                  ×
                 </button>
               )}
             </div>
