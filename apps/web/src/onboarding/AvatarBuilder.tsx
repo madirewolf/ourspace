@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { createRng, type AvatarDoc } from "@atrium/core";
+﻿import { useState } from "react";
+import { createRng, type AvatarDoc } from "@ourspace/core";
 import {
   ACCESSORIES,
   EYE_COLORS,
@@ -8,7 +8,7 @@ import {
   OUTFIT_COLORS,
   randomAvatar,
   SKIN_TONES,
-} from "@atrium/avatar";
+} from "@ourspace/avatar";
 import { AvatarStage } from "../components/AvatarStage";
 
 type Tab = "skin" | "hair" | "outfit" | "extras";
@@ -95,10 +95,10 @@ export function AvatarBuilder({ value, onChange }: AvatarBuilderProps) {
         <AvatarStage doc={value} turntable />
         <button
           type="button"
-          className="btn small"
+          className="btn small surprise-btn"
           onClick={() => onChange(randomAvatar(createRng(crypto.randomUUID())))}
         >
-          🎲 surprise me
+          ↻ Randomize
         </button>
       </div>
       <div className="builder-controls">
@@ -114,6 +114,8 @@ export function AvatarBuilder({ value, onChange }: AvatarBuilderProps) {
             </button>
           ))}
         </div>
+
+        <p className="builder-status">AVATAR_DOC // LIVE PREVIEW // DRAG-FREE TURNTABLE</p>
 
         {tab === "skin" && (
           <>

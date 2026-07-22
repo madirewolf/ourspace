@@ -13,6 +13,7 @@ export {
   shade,
   mixRgb,
   readableAccent,
+  neonAccent,
   type Rgb,
 } from "./color";
 export { CRAFTS, modulesForCrafts, type Craft } from "./archetypes";

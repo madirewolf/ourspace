@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
+import { useCallback } from "react";
 import * as THREE from "three";
-import { Avatar } from "@atrium/avatar";
-import type { PhotoItem, PhotosModule } from "@atrium/core";
-import { useApp } from "../store";
+import { Avatar } from "@ourspace/avatar";
+import type { PhotoItem, PhotosModule, ProfileDoc } from "@ourspace/core";
+import { useApp, type Screen } from "../store";
 
 /**
  * The walkable room: the owner's images framed on facing walls, visited in
@@ -282,9 +283,22 @@ function Scene({ items, textures, title, accent, onNear }: SceneProps) {
   );
 }
 
-export function GalleryPage({ moduleId }: { moduleId: string }) {
-  const profile = useApp((s) => s.profile);
+export function GalleryPage({
+  moduleId,
+  profileOverride,
+  returnScreen,
+}: {
+  moduleId: string;
+  profileOverride?: ProfileDoc;
+  returnScreen?: Screen;
+}) {
+  const localProfile = useApp((s) => s.profile);
   const setScreen = useApp((s) => s.setScreen);
+  const profile = profileOverride ?? localProfile;
+  const goBack = useCallback(
+    () => setScreen(returnScreen ?? { name: "profile" }),
+    [returnScreen, setScreen],
+  );
   const module = profile?.modules.find(
     (m): m is PhotosModule => m.id === moduleId && m.kind === "photos",
   );
@@ -309,16 +323,16 @@ export function GalleryPage({ moduleId }: { moduleId: string }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setScreen({ name: "profile" });
+      if (e.key === "Escape") goBack();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setScreen]);
+  }, [goBack]);
 
   const missing = !profile || !module;
   useEffect(() => {
-    if (missing) setScreen({ name: "profile" });
-  }, [missing, setScreen]);
+    if (missing) goBack();
+  }, [goBack, missing]);
   if (missing) return null;
 
   const caption = near !== null ? (items[near]?.caption ?? `Untitled ${near + 1}`) : null;
@@ -336,11 +350,7 @@ export function GalleryPage({ moduleId }: { moduleId: string }) {
         />
       </Canvas>
       <div className="gallery-ui">
-        <button
-          type="button"
-          className="btn small gallery-back"
-          onClick={() => setScreen({ name: "profile" })}
-        >
+        <button type="button" className="btn small gallery-back" onClick={goBack}>
           ← Back to page
         </button>
         <div className="gallery-hint">

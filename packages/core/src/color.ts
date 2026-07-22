@@ -88,3 +88,12 @@ export function readableAccent(hex: string): string {
   const [h, s, l] = rgbToHsl(hexToRgb(hex));
   return rgbToHex(hslToRgb([h, Math.max(s, 0.28), clamp(l, 0.22, 0.44)]));
 }
+
+/**
+ * The dark-theme counterpart: push a color toward neon so it glows against
+ * a near-black panel. A black shirt must not produce a black glow.
+ */
+export function neonAccent(hex: string): string {
+  const [h, s, l] = rgbToHsl(hexToRgb(hex));
+  return rgbToHex(hslToRgb([h, Math.max(s, 0.55), clamp(l, 0.55, 0.7)]));
+}

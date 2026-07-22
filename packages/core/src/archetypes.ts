@@ -81,11 +81,13 @@ export function modulesForCrafts(crafts: readonly string[], makeId: () => string
     });
   }
 
-  // Everyone gets a moodboard — inspiration is universal.
+  // Everyone gets a playlist (the profile song lives here) and a moodboard —
+  // taste and inspiration are universal.
+  modules.push({ id: makeId(), kind: "music", title: "Playlist", tracks: [] });
   modules.push({ id: makeId(), kind: "moodboard", title: "Moodboard", items: [] });
 
   // A completely empty profile still deserves one place to put work.
-  if (modules.length === 1) {
+  if (!modules.some((m) => m.kind === "photos")) {
     modules.unshift({ id: makeId(), kind: "photos", title: "Works", items: [] });
   }
 

@@ -1,5 +1,5 @@
 {
-  "name": "@atrium/web",
+  "name": "@ourspace/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@atrium/avatar": "workspace:*",
-    "@atrium/core": "workspace:*",
+    "@ourspace/avatar": "workspace:*",
+    "@ourspace/core": "workspace:*",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "react": "^19.2.7",

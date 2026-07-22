@@ -1,4 +1,4 @@
-import { createRng, pick, randInt, randRange, type Rng } from "@atrium/core";
+﻿import { createRng, pick, randInt, randRange, type Rng } from "@ourspace/core";
 
 /**
  * Seeded abstract art so a brand-new profile (and its gallery) never looks
@@ -67,7 +67,7 @@ function arcs(ctx: CanvasRenderingContext2D, rng: Rng, colors: readonly string[]
 const STYLES = [soft, bars, arcs] as const;
 
 export function sampleArt(seed: string): string {
-  const rng = createRng(`atrium:art:v1:${seed}`);
+  const rng = createRng(`ourspace:art:v1:${seed}`);
   const colors = pick(rng, PALETTES);
   const canvas = document.createElement("canvas");
   canvas.width = 800;

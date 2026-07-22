@@ -53,6 +53,8 @@ export interface PhotosModule extends ModuleBase {
 export interface MusicModule extends ModuleBase {
   kind: "music";
   tracks: TrackItem[];
+  /** The MySpace move: this track plays on the profile page. */
+  favoriteTrackId?: string;
 }
 
 export interface MoodboardModule extends ModuleBase {
