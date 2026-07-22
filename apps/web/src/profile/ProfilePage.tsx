@@ -106,6 +106,17 @@ export function ProfilePage() {
     removeModule(module.id);
   };
 
+  const launchIntoOrbit = () => {
+    const navigate = () => setScreen({ name: "discovery" });
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const startViewTransition = document.startViewTransition?.bind(document);
+    if (!prefersReducedMotion && startViewTransition) {
+      startViewTransition(navigate);
+      return;
+    }
+    navigate();
+  };
+
   return (
     <div className="profile-shell" style={{ ["--accent" as string]: accent }}>
       <nav className="site-nav profile-nav">
@@ -207,7 +218,7 @@ export function ProfilePage() {
           <button
             type="button"
             className="btn primary launch-orbit-button"
-            onClick={() => setScreen({ name: "discovery" })}
+            onClick={launchIntoOrbit}
           >
             Launch into orbit ↗
           </button>

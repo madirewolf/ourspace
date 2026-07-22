@@ -13,7 +13,11 @@ export type AvatarProps = ThreeElements["group"] & {
   moving?: boolean;
   /** Raised hands and a rhythmic bounce for sound-room DJ booths. */
   performing?: boolean;
+  /** Explicit animation state for authored sequences such as the orbit launch. */
+  motion?: AvatarMotion;
 };
+
+export type AvatarMotion = "idle" | "walk" | "run" | "jump" | "fall" | "land" | "perform";
 
 interface Materials {
   skin: THREE.MeshStandardMaterial;
@@ -201,7 +205,13 @@ function Accessory({ id, m }: { id: string; m: Materials }) {
   }
 }
 
-export function Avatar({ doc, moving = false, performing = false, ...groupProps }: AvatarProps) {
+export function Avatar({
+  doc,
+  moving = false,
+  performing = false,
+  motion,
+  ...groupProps
+}: AvatarProps) {
   const materials = useMemo(() => makeMaterials(doc), [doc]);
   useEffect(
     () => () => Object.values(materials).forEach((material) => material.dispose()),
@@ -214,33 +224,139 @@ export function Avatar({ doc, moving = false, performing = false, ...groupProps 
   const armR = useRef<THREE.Group>(null);
   const legL = useRef<THREE.Group>(null);
   const legR = useRef<THREE.Group>(null);
+  const shinL = useRef<THREE.Group>(null);
+  const shinR = useRef<THREE.Group>(null);
+  const footL = useRef<THREE.Group>(null);
+  const footR = useRef<THREE.Group>(null);
+  const activeMotion = motion ?? (performing ? "perform" : moving ? "walk" : "idle");
+  const previousMotion = useRef<AvatarMotion>(activeMotion);
+  const motionStartedAt = useRef(0);
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
-    const swing = Math.sin(t * 9);
+    if (previousMotion.current !== activeMotion) {
+      previousMotion.current = activeMotion;
+      motionStartedAt.current = t;
+    }
+    const localTime = t - motionStartedAt.current;
     const idle = Math.sin(t * 2);
-    const performanceBeat = Math.sin(t * 5.5);
-    const arm = performing ? -1.02 + performanceBeat * 0.18 : moving ? swing * 0.72 : idle * 0.045;
-    const leg = moving ? swing * 0.58 : 0;
+    const damp = (current: number, target: number, speed = 12) =>
+      THREE.MathUtils.damp(current, target, speed, delta);
+
+    let armLX = idle * 0.045;
+    let armRX = -idle * 0.045;
+    let armLZ = 0;
+    let armRZ = 0;
+    let legLX = 0;
+    let legRX = 0;
+    let legLZ = 0;
+    let legRZ = 0;
+    let shinLX = 0;
+    let shinRX = 0;
+    let footLX = 0;
+    let footRX = 0;
+    let bodyY = idle * 0.01;
+    let bodyX = 0;
+    let bodyZ = 0;
+    let headX = 0;
+    let headZ = idle * 0.018;
+
+    if (activeMotion === "walk" || activeMotion === "run") {
+      const running = activeMotion === "run";
+      const swing = Math.sin(localTime * (running ? 11.2 : 7.1));
+      const stride = running ? 0.82 : 0.5;
+      legLX = -swing * stride;
+      legRX = swing * stride;
+      shinLX = Math.max(0, swing) * (running ? 0.92 : 0.5);
+      shinRX = Math.max(0, -swing) * (running ? 0.92 : 0.5);
+      footLX = -shinLX * 0.62;
+      footRX = -shinRX * 0.62;
+      armLX = swing * (running ? 0.88 : 0.52);
+      armRX = -armLX;
+      bodyY = Math.abs(swing) * (running ? 0.055 : 0.025);
+      bodyX = running ? 0.13 : 0.035;
+      bodyZ = swing * (running ? 0.025 : 0.012);
+      headX = running ? -0.055 : 0.018;
+      headZ = -bodyZ * 0.6;
+    } else if (activeMotion === "jump") {
+      const anticipation = 1 - Math.min(1, localTime / 0.24);
+      const release = Math.min(1, Math.max(0, (localTime - 0.18) / 0.28));
+      bodyY = -anticipation * 0.12 + release * 0.035;
+      bodyX = 0.16;
+      legLX = -0.18 * anticipation + 0.34 * release;
+      legRX = -0.18 * anticipation - 0.12 * release;
+      shinLX = 0.72 * anticipation + 0.36 * release;
+      shinRX = 0.72 * anticipation + 0.62 * release;
+      armLX = 0.65 * anticipation - 1.05 * release;
+      armRX = armLX * 0.86;
+      headX = -0.08;
+    } else if (activeMotion === "fall") {
+      const drift = Math.sin(localTime * 2.7);
+      bodyX = 0.08 + drift * 0.035;
+      bodyZ = drift * 0.04;
+      armLX = 0.22 + drift * 0.12;
+      armRX = 0.22 - drift * 0.12;
+      armLZ = -0.78;
+      armRZ = 0.78;
+      legLX = 0.18 + drift * 0.12;
+      legRX = -0.12 - drift * 0.1;
+      legLZ = -0.12;
+      legRZ = 0.12;
+      shinLX = 0.28;
+      shinRX = 0.42;
+      headX = -0.12;
+      headZ = -drift * 0.06;
+    } else if (activeMotion === "land") {
+      const impact = Math.exp(-localTime * 4.8);
+      bodyY = -0.17 * impact;
+      bodyX = 0.16 * impact;
+      legLX = -0.24 * impact;
+      legRX = -0.2 * impact;
+      shinLX = 0.88 * impact;
+      shinRX = 0.82 * impact;
+      armLX = -0.72 * impact;
+      armRX = -0.58 * impact;
+      armLZ = -0.18 * impact;
+      armRZ = 0.18 * impact;
+      headX = 0.11 * impact;
+    } else if (activeMotion === "perform") {
+      const beat = Math.sin(localTime * 5.5);
+      armLX = -1.02 + beat * 0.18;
+      armRX = armLX - beat * 0.12;
+      armLZ = -0.18;
+      armRZ = 0.18;
+      bodyY = Math.max(0, beat) * 0.035;
+      headZ = beat * 0.055;
+    }
+
     if (armL.current) {
-      armL.current.rotation.x = arm;
-      armL.current.rotation.z = performing ? -0.18 : 0;
+      armL.current.rotation.x = damp(armL.current.rotation.x, armLX);
+      armL.current.rotation.z = damp(armL.current.rotation.z, armLZ);
     }
     if (armR.current) {
-      armR.current.rotation.x = performing ? arm - performanceBeat * 0.12 : -arm;
-      armR.current.rotation.z = performing ? 0.18 : 0;
+      armR.current.rotation.x = damp(armR.current.rotation.x, armRX);
+      armR.current.rotation.z = damp(armR.current.rotation.z, armRZ);
     }
-    if (legL.current) legL.current.rotation.x = -leg;
-    if (legR.current) legR.current.rotation.x = leg;
-    if (body.current)
-      body.current.position.y = performing
-        ? Math.max(0, performanceBeat) * 0.035
-        : moving
-          ? Math.abs(swing) * 0.04
-          : idle * 0.01;
+    if (legL.current) {
+      legL.current.rotation.x = damp(legL.current.rotation.x, legLX);
+      legL.current.rotation.z = damp(legL.current.rotation.z, legLZ);
+    }
+    if (legR.current) {
+      legR.current.rotation.x = damp(legR.current.rotation.x, legRX);
+      legR.current.rotation.z = damp(legR.current.rotation.z, legRZ);
+    }
+    if (shinL.current) shinL.current.rotation.x = damp(shinL.current.rotation.x, shinLX);
+    if (shinR.current) shinR.current.rotation.x = damp(shinR.current.rotation.x, shinRX);
+    if (footL.current) footL.current.rotation.x = damp(footL.current.rotation.x, footLX);
+    if (footR.current) footR.current.rotation.x = damp(footR.current.rotation.x, footRX);
+    if (body.current) {
+      body.current.position.y = damp(body.current.position.y, bodyY);
+      body.current.rotation.x = damp(body.current.rotation.x, bodyX);
+      body.current.rotation.z = damp(body.current.rotation.z, bodyZ);
+    }
     if (head.current) {
-      head.current.rotation.z = performing ? performanceBeat * 0.055 : moving ? 0 : idle * 0.018;
-      head.current.rotation.x = moving ? 0.035 : 0;
+      head.current.rotation.z = damp(head.current.rotation.z, headZ);
+      head.current.rotation.x = damp(head.current.rotation.x, headX);
     }
   });
 
@@ -251,23 +367,31 @@ export function Avatar({ doc, moving = false, performing = false, ...groupProps 
           <mesh material={materials.bottom} position={[0, -0.19, 0]}>
             <cylinderGeometry args={[0.085, 0.07, 0.38, 5]} />
           </mesh>
-          <mesh material={materials.bottom} position={[0, -0.47, 0]}>
-            <cylinderGeometry args={[0.068, 0.055, 0.28, 5]} />
-          </mesh>
-          <mesh material={materials.shoes} position={[0, -0.65, 0.065]}>
-            <boxGeometry args={[0.16, 0.12, 0.28]} />
-          </mesh>
+          <group ref={shinL} position={[0, -0.38, 0]}>
+            <mesh material={materials.bottom} position={[0, -0.14, 0]}>
+              <cylinderGeometry args={[0.068, 0.055, 0.28, 5]} />
+            </mesh>
+            <group ref={footL} position={[0, -0.32, 0.065]}>
+              <mesh material={materials.shoes}>
+                <boxGeometry args={[0.16, 0.12, 0.28]} />
+              </mesh>
+            </group>
+          </group>
         </group>
         <group ref={legR} position={[-0.115, 0.7, 0]}>
           <mesh material={materials.bottom} position={[0, -0.19, 0]}>
             <cylinderGeometry args={[0.085, 0.07, 0.38, 5]} />
           </mesh>
-          <mesh material={materials.bottom} position={[0, -0.47, 0]}>
-            <cylinderGeometry args={[0.068, 0.055, 0.28, 5]} />
-          </mesh>
-          <mesh material={materials.shoes} position={[0, -0.65, 0.065]}>
-            <boxGeometry args={[0.16, 0.12, 0.28]} />
-          </mesh>
+          <group ref={shinR} position={[0, -0.38, 0]}>
+            <mesh material={materials.bottom} position={[0, -0.14, 0]}>
+              <cylinderGeometry args={[0.068, 0.055, 0.28, 5]} />
+            </mesh>
+            <group ref={footR} position={[0, -0.32, 0.065]}>
+              <mesh material={materials.shoes}>
+                <boxGeometry args={[0.16, 0.12, 0.28]} />
+              </mesh>
+            </group>
+          </group>
         </group>
 
         <mesh material={materials.top} position={[0, 1.02, 0]}>
