@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`createRng > is stable across releases (golden values) 1`] = `
+[
+  0.992339126765728,
+  0.24969830340705812,
+  0.9747733301483095,
+  0.6050308058038354,
+]
+`;

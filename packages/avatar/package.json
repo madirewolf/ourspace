@@ -1,0 +1,22 @@
+{
+  "name": "@atrium/avatar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@atrium/core": "workspace:*",
+    "@react-three/fiber": "^9.6.1",
+    "react": "^19.2.7",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/three": "^0.185.1"
+  }
+}
