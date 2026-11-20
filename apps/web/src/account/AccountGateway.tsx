@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { ProfileDoc } from "@ourspace/core";
 import { useApp } from "../store";
+import { withTransition } from "../navigation";
 
 interface AccountGatewayProps {
   profile: ProfileDoc | null;
@@ -23,7 +24,7 @@ export function AccountGateway({ profile, onCreate }: AccountGatewayProps) {
       setError(`This device only knows @${profile.username}.`);
       return;
     }
-    signIn();
+    withTransition(signIn);
   };
 
   return (

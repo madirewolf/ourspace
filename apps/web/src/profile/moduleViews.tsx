@@ -11,6 +11,7 @@ import { makeId } from "../ids";
 import { fileToDataUrl } from "../imageUtils";
 import { sampleArt } from "../sampleArt";
 import { useApp } from "../store";
+import { useNavigate } from "../navigation";
 
 function useFilePicker(accept: string, onFiles: (files: File[]) => void) {
   const ref = useRef<HTMLInputElement>(null);
@@ -58,7 +59,7 @@ function failureNotice(failed: number): string | null {
 export function PhotosView({ module, editing }: { module: PhotosModule; editing: boolean }) {
   const updateModule = useApp((s) => s.updateModule);
   const appendPhotos = useApp((s) => s.appendPhotos);
-  const setScreen = useApp((s) => s.setScreen);
+  const setScreen = useNavigate();
   const [notice, setNotice] = useState<string | null>(null);
 
   const { input, open } = useFilePicker("image/*", async (files) => {
@@ -136,7 +137,7 @@ export function PhotosView({ module, editing }: { module: PhotosModule; editing:
 
 export function MusicView({ module, editing }: { module: MusicModule; editing: boolean }) {
   const updateModule = useApp((s) => s.updateModule);
-  const setScreen = useApp((s) => s.setScreen);
+  const setScreen = useNavigate();
   const [linkTitle, setLinkTitle] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const { input, open } = useFilePicker("audio/*", (files) => {

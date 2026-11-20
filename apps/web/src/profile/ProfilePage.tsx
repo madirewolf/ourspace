@@ -12,6 +12,7 @@ import { getStorageFailed, subscribeStorageHealth, useApp } from "../store";
 import { AvatarStage } from "../components/AvatarStage";
 import { AvatarBuilder } from "../onboarding/AvatarBuilder";
 import { MoodboardView, MusicView, PhotosView, TextView } from "./moduleViews";
+import { goTo, useNavigate, withTransition } from "../navigation";
 
 interface AddableModule {
   kind: ModuleKind;
@@ -73,7 +74,7 @@ export function ProfilePage() {
   const removeModule = useApp((s) => s.removeModule);
   const moveModule = useApp((s) => s.moveModule);
   const signOut = useApp((s) => s.signOut);
-  const setScreen = useApp((s) => s.setScreen);
+  const setScreen = useNavigate();
 
   const [editing, setEditing] = useState(false);
   const [editingAvatar, setEditingAvatar] = useState(false);
@@ -106,16 +107,7 @@ export function ProfilePage() {
     removeModule(module.id);
   };
 
-  const launchIntoOrbit = () => {
-    const navigate = () => setScreen({ name: "discovery" });
-    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const startViewTransition = document.startViewTransition?.bind(document);
-    if (!prefersReducedMotion && startViewTransition) {
-      startViewTransition(navigate);
-      return;
-    }
-    navigate();
-  };
+  const launchIntoOrbit = () => goTo({ name: "discovery" }, "orbit");
 
   return (
     <div className="profile-shell" style={{ ["--accent" as string]: accent }}>
@@ -132,7 +124,7 @@ export function ProfilePage() {
           <span className="nav-status">
             <span /> @{profile.username} online
           </span>
-          <button type="button" className="nav-link" onClick={signOut}>
+          <button type="button" className="nav-link" onClick={() => withTransition(signOut)}>
             log out ↗
           </button>
         </div>

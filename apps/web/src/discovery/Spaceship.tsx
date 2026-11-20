@@ -1,5 +1,6 @@
 import { useMemo, type RefObject } from "react";
 import * as THREE from "three";
+import { glowTexture } from "../components/glowTexture";
 
 interface SpaceshipProps {
   rootRef: RefObject<THREE.Group | null>;
@@ -55,10 +56,132 @@ function ConsoleLights() {
   );
 }
 
+function EngineExhaust({ color }: { color: string }) {
+  const glow = glowTexture();
+  return (
+    <group position={[0, 0, 1.92]}>
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.47, 0.47, 0.2, 8, 1, true]} />
+        <meshStandardMaterial
+          color="#2a2f40"
+          metalness={0.8}
+          roughness={0.3}
+          flatShading
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh position={[0, 0, 0.02]}>
+        <circleGeometry args={[0.36, 8]} />
+        <meshBasicMaterial color={color} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, 0, 0.04]}>
+        <circleGeometry args={[0.17, 8]} />
+        <meshBasicMaterial color="#f4fffd" toneMapped={false} />
+      </mesh>
+      <sprite position={[0, 0, 0.3]} scale={[2.1, 2.1, 1]}>
+        <spriteMaterial
+          map={glow}
+          color={color}
+          transparent
+          opacity={0.85}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </sprite>
+      <sprite position={[0, 0, 0.9]} scale={[1.1, 1.1, 1]}>
+        <spriteMaterial
+          map={glow}
+          color="#ffffff"
+          transparent
+          opacity={0.45}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </sprite>
+    </group>
+  );
+}
+
+/** Twin canted tail fins: the entry camera glides between them, never through. */
+function TailFin({ side }: { side: -1 | 1 }) {
+  const glow = glowTexture();
+  return (
+    <group position={[side * 1.0, 0.5, 3.45]} rotation={[-0.24, 0, -side * 0.38]}>
+      <mesh position={[0, 0.62, 0]}>
+        <boxGeometry args={[0.12, 1.3, 1.15]} />
+        <meshStandardMaterial
+          color="#4a4269"
+          emissive="#24163f"
+          emissiveIntensity={0.3}
+          metalness={0.62}
+          roughness={0.38}
+          flatShading
+        />
+      </mesh>
+      <mesh position={[0, 0.62, 0.6]}>
+        <boxGeometry args={[0.13, 1.18, 0.06]} />
+        <meshBasicMaterial color={side === -1 ? "#54ffdc" : "#ff4dd8"} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, 1.33, -0.3]} rotation={[0, 0, Math.PI / 4]}>
+        <octahedronGeometry args={[0.1, 0]} />
+        <meshBasicMaterial color="#c8ff32" toneMapped={false} />
+      </mesh>
+      <sprite position={[0, 1.33, -0.3]} scale={[0.7, 0.7, 1]}>
+        <spriteMaterial
+          map={glow}
+          color="#c8ff32"
+          transparent
+          opacity={0.7}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </sprite>
+    </group>
+  );
+}
+
+/**
+ * Gull-wing roof panel hinged at the top of the cockpit pillar. Open, it lifts
+ * clear of the entry path; closed, it becomes a glass roof above the pilot, so
+ * nothing frames across the planets.
+ */
+function CanopyPanel({ side }: { side: -1 | 1 }) {
+  const inward = -side;
+  return (
+    <>
+      <mesh position={[inward * 0.8, 0, 0.55]}>
+        <boxGeometry args={[1.6, 0.045, 2.85]} />
+        <meshStandardMaterial
+          color="#587897"
+          emissive="#153451"
+          emissiveIntensity={0.18}
+          metalness={0.08}
+          roughness={0.08}
+          transparent
+          opacity={0.2}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh position={[inward * 0.8, 0.06, -0.86]}>
+        <boxGeometry args={[1.6, 0.07, 0.1]} />
+        <meshStandardMaterial color="#555b70" metalness={0.78} roughness={0.24} />
+      </mesh>
+      <mesh position={[inward * 0.8, 0.06, 1.96]}>
+        <boxGeometry args={[1.6, 0.07, 0.1]} />
+        <meshStandardMaterial color="#555b70" metalness={0.78} roughness={0.24} />
+      </mesh>
+    </>
+  );
+}
+
 /**
  * Runtime-built courier craft: broad PS2-era silhouette outside, readable
- * cockpit framing inside. The camera enters through the open rear canopy, so
- * no hull mesh needs to pop out of existence during the POV handoff.
+ * cockpit framing inside. The camera enters between the twin fins and under the
+ * raised gull-wing canopy, so no hull mesh needs to pop out of existence during
+ * the POV handoff.
  */
 export function Spaceship({ rootRef, canopyLeftRef, canopyRightRef }: SpaceshipProps) {
   return (
@@ -108,10 +231,7 @@ export function Spaceship({ rootRef, canopyLeftRef, canopyRightRef }: SpaceshipP
                 flatShading
               />
             </mesh>
-            <mesh position={[0, 0, 1.92]} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.39, 0.47, 0.18, 8]} />
-              <meshBasicMaterial color={side === -1 ? "#54ffdc" : "#ff4dd8"} toneMapped={false} />
-            </mesh>
+            <EngineExhaust color={side === -1 ? "#54ffdc" : "#ff4dd8"} />
             <pointLight
               position={[0, 0, 2.12]}
               color={side === -1 ? "#54ffdc" : "#ff4dd8"}
@@ -121,14 +241,9 @@ export function Spaceship({ rootRef, canopyLeftRef, canopyRightRef }: SpaceshipP
           </group>
         ))}
 
-        <mesh position={[0, 1.05, 3.92]} rotation={[-0.2, 0, 0]}>
-          <boxGeometry args={[0.16, 1.95, 1.55]} />
-          <meshStandardMaterial color="#4a4269" metalness={0.62} roughness={0.38} flatShading />
-        </mesh>
-        <mesh position={[0, 1.9, 3.46]} rotation={[0, 0, Math.PI / 4]}>
-          <octahedronGeometry args={[0.22, 0]} />
-          <meshBasicMaterial color="#c8ff32" toneMapped={false} />
-        </mesh>
+        {([-1, 1] as const).map((side) => (
+          <TailFin key={side} side={side} />
+        ))}
       </group>
 
       <group name="cockpit-interior">
@@ -178,54 +293,26 @@ export function Spaceship({ rootRef, canopyLeftRef, canopyRightRef }: SpaceshipP
           </mesh>
         </group>
 
-        <group position={[0, 0.46, 3.1]}>
-          <mesh position={[0, 0.45, 0.25]} rotation={[-0.12, 0, 0]}>
-            <boxGeometry args={[0.86, 1.05, 0.42]} />
-            <meshStandardMaterial color="#171925" metalness={0.4} roughness={0.64} flatShading />
+        <group position={[0, 0.3, 3.45]}>
+          <mesh position={[0, 0.5, 0.18]} rotation={[-0.1, 0, 0]}>
+            <boxGeometry args={[0.86, 0.95, 0.3]} />
+            <meshStandardMaterial color="#1b1d2b" metalness={0.4} roughness={0.64} flatShading />
           </mesh>
-          <mesh position={[0, 1.02, 0]} rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.34, 0.45, 0.72, 6]} />
-            <meshStandardMaterial color="#292d3d" metalness={0.45} roughness={0.5} flatShading />
+          <mesh position={[0, 1.1, 0.26]} rotation={[-0.1, 0, 0]}>
+            <boxGeometry args={[0.52, 0.24, 0.24]} />
+            <meshStandardMaterial color="#2b3042" metalness={0.45} roughness={0.5} flatShading />
+          </mesh>
+          <mesh position={[0, 0.06, -0.12]}>
+            <boxGeometry args={[0.82, 0.14, 0.62]} />
+            <meshStandardMaterial color="#1b1d2b" metalness={0.4} roughness={0.64} flatShading />
           </mesh>
         </group>
 
-        <group ref={canopyLeftRef} position={[-1.58, 0.8, 0.45]}>
-          <mesh position={[0.72, 0.72, 0]} rotation={[0, 0, -0.43]}>
-            <boxGeometry args={[1.55, 0.055, 3.65]} />
-            <meshStandardMaterial
-              color="#587897"
-              emissive="#153451"
-              emissiveIntensity={0.18}
-              metalness={0.08}
-              roughness={0.08}
-              transparent
-              opacity={0.25}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh position={[0.7, 0.72, -1.82]} rotation={[0, 0, -0.43]}>
-            <boxGeometry args={[1.62, 0.09, 0.1]} />
-            <meshStandardMaterial color="#555b70" metalness={0.78} roughness={0.24} />
-          </mesh>
+        <group ref={canopyLeftRef} position={[-1.58, 2.72, 0.45]}>
+          <CanopyPanel side={-1} />
         </group>
-        <group ref={canopyRightRef} position={[1.58, 0.8, 0.45]}>
-          <mesh position={[-0.72, 0.72, 0]} rotation={[0, 0, 0.43]}>
-            <boxGeometry args={[1.55, 0.055, 3.65]} />
-            <meshStandardMaterial
-              color="#587897"
-              emissive="#153451"
-              emissiveIntensity={0.18}
-              metalness={0.08}
-              roughness={0.08}
-              transparent
-              opacity={0.25}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh position={[-0.7, 0.72, -1.82]} rotation={[0, 0, 0.43]}>
-            <boxGeometry args={[1.62, 0.09, 0.1]} />
-            <meshStandardMaterial color="#555b70" metalness={0.78} roughness={0.24} />
-          </mesh>
+        <group ref={canopyRightRef} position={[1.58, 2.72, 0.45]}>
+          <CanopyPanel side={1} />
         </group>
 
         <mesh position={[0, 1.18, 0.18]} rotation={[Math.PI / 2, 0, 0]}>
