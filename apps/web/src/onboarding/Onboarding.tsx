@@ -12,6 +12,7 @@ import { makeId } from "../ids";
 import { sampleArt } from "../sampleArt";
 import { useApp } from "../store";
 import { AvatarBuilder } from "./AvatarBuilder";
+import { withTransition } from "../navigation";
 
 type Step = "welcome" | "identity" | "avatar" | "crafts" | "sound" | "about";
 const STEPS: Step[] = ["welcome", "identity", "avatar", "crafts", "sound", "about"];
@@ -96,22 +97,24 @@ export function Onboarding({
       setAvatar(randomAvatar(createRng(`ourspace:avatar:v1:${username || name}`)));
     }
     const upcoming = STEPS[stepIndex + 1];
-    if (upcoming) setStep(upcoming);
+    if (upcoming) withTransition(() => setStep(upcoming));
   };
   const back = () => {
     const previous = STEPS[stepIndex - 1];
-    if (previous) setStep(previous);
+    if (previous) withTransition(() => setStep(previous));
   };
 
   const finish = () => {
     if (!avatar) return;
-    createProfile(
-      assembleProfile(name.trim(), username.trim(), about.trim(), avatar, crafts, {
-        title: favoriteSongTitle,
-        src: favoriteSongUrl,
-      }),
-    );
-    onComplete?.();
+    withTransition(() => {
+      createProfile(
+        assembleProfile(name.trim(), username.trim(), about.trim(), avatar, crafts, {
+          title: favoriteSongTitle,
+          src: favoriteSongUrl,
+        }),
+      );
+      onComplete?.();
+    });
   };
 
   const toggleCraft = (id: string) =>

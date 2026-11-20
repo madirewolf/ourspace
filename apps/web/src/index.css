@@ -1574,29 +1574,110 @@ audio {
   top: 18px;
   left: 18px;
 }
+.gallery {
+  /* Warm dusk behind the room while it is being hung, never a black flash. */
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, #3a2e22, #15110d 75%);
+}
+.rave {
+  /* The booth's violet haze, so the room fades up out of its own colour. */
+  background: radial-gradient(ellipse 70% 60% at 50% 42%, #2a1640, #0c0814 75%);
+}
+.rave .room-loading {
+  color: #d9c8ff;
+}
+/* 3D rooms stay invisible until every shader is compiled, then fade in. */
+.room-canvas {
+  opacity: 0;
+  transition: opacity 520ms ease-out;
+}
+.gallery.warm .room-canvas,
+.rave.warm .room-canvas {
+  opacity: 1;
+}
+.room-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(243, 234, 217, 0.72);
+  font:
+    italic 400 1rem Georgia,
+    "Times New Roman",
+    serif;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  transition: opacity 300ms ease-out;
+  animation: room-loading-breathe 1.6s ease-in-out infinite alternate;
+}
+.warm > .room-loading {
+  opacity: 0;
+  animation: none;
+}
+@keyframes room-loading-breathe {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 0.9;
+  }
+}
 .gallery-hint {
   position: absolute;
   top: 20px;
   right: 20px;
   max-width: calc(100% - 180px);
   padding: 8px 12px;
-  color: #d0d0da;
-  background: rgba(7, 8, 13, 0.82);
-  border: 1px solid #5c5e70;
+  color: #f3ead9;
+  background: rgba(36, 28, 20, 0.62);
+  border: 1px solid rgba(255, 240, 215, 0.2);
+  backdrop-filter: blur(6px);
   font:
     700 0.6rem "Courier New",
     monospace;
+  letter-spacing: 0.04em;
 }
+/* A museum wall label: cream card, serif title, quiet index. */
 .gallery-caption {
   position: absolute;
   left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  padding: 11px 18px;
-  color: #eee;
-  background: rgba(8, 9, 14, 0.9);
-  border: 1px solid #686a7b;
-  font-size: 0.85rem;
+  bottom: 26px;
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  max-width: min(440px, calc(100% - 24px));
+  padding: 14px 20px 15px;
+  color: #2a251d;
+  background: #f5efe3;
+  border: 1px solid rgba(42, 37, 29, 0.18);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 14px 34px rgba(30, 20, 10, 0.28);
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition:
+    opacity 260ms ease-out,
+    transform 260ms ease-out;
+  pointer-events: none;
+}
+.gallery-caption.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.gallery-caption-index,
+.gallery-caption-owner {
+  font:
+    700 0.58rem "Courier New",
+    monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(42, 37, 29, 0.6);
+}
+.gallery-caption-title {
+  font:
+    italic 400 1.15rem Georgia,
+    "Times New Roman",
+    serif;
+  line-height: 1.3;
 }
 
 /* Rave room */
@@ -1931,6 +2012,7 @@ audio {
   }
   .gallery-caption {
     width: calc(100% - 24px);
+    bottom: 16px;
     text-align: center;
   }
 }
@@ -1948,7 +2030,6 @@ audio {
     radial-gradient(circle at 8% 50%, rgba(84, 255, 220, 0.15), transparent 21%),
     radial-gradient(circle at 82% 10%, rgba(255, 77, 216, 0.12), transparent 30%),
     linear-gradient(145deg, #161525, #090a11);
-  view-transition-name: orbit-launch;
   contain: paint;
 }
 .orbit-launch-card::after {
@@ -2042,8 +2123,10 @@ audio {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: #030308;
-  view-transition-name: orbit-launch;
+  /* Painted to match the nebula sky, so the world fades in from its own colours. */
+  background:
+    radial-gradient(ellipse 60% 55% at 18% 34%, rgba(56, 12, 54, 0.85), transparent 70%),
+    radial-gradient(ellipse 55% 50% at 86% 62%, rgba(8, 46, 54, 0.8), transparent 70%), #05040d;
   contain: paint;
 }
 .discovery::after {
@@ -2057,8 +2140,12 @@ audio {
     radial-gradient(circle at center, transparent 42%, rgba(1, 2, 7, 0.36) 100%);
   mix-blend-mode: screen;
 }
-.discovery canvas {
-  display: block;
+.flight-canvas {
+  opacity: 0;
+  transition: opacity 520ms ease-out;
+}
+.discovery.warm .flight-canvas {
+  opacity: 1;
 }
 .discovery-ui {
   position: absolute;
@@ -2134,6 +2221,28 @@ audio {
   }
 }
 
+/* Screen changes (see navigation.ts). The orbit launch morphs the launch card
+   into the nebula; every other change is a soft cross-fade. */
+html[data-transition="orbit"] .orbit-launch-card,
+html[data-transition="orbit"] .discovery::after {
+  view-transition-name: orbit-launch;
+}
+html[data-transition="fade"]::view-transition-old(root) {
+  animation: screen-fade-out 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+html[data-transition="fade"]::view-transition-new(root) {
+  animation: screen-fade-in 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes screen-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes screen-fade-in {
+  from {
+    opacity: 0;
+  }
+}
 ::view-transition-group(orbit-launch) {
   z-index: 100;
   overflow: hidden;
@@ -2148,10 +2257,10 @@ audio {
   animation: orbit-world-arrive 920ms cubic-bezier(0.2, 0.78, 0.16, 1) both;
   mix-blend-mode: normal;
 }
-::view-transition-old(root) {
+html[data-transition="orbit"]::view-transition-old(root) {
   animation: orbit-page-recede 920ms cubic-bezier(0.2, 0.78, 0.16, 1) both;
 }
-::view-transition-new(root) {
+html[data-transition="orbit"]::view-transition-new(root) {
   animation: none;
 }
 @keyframes orbit-card-depart {
@@ -2252,6 +2361,8 @@ audio {
   box-shadow: 8px 9px 0 rgba(0, 0, 0, 0.46);
   backdrop-filter: blur(12px);
   pointer-events: auto;
+  /* Own compositor layers: the slide-in never repaints the blurred glass. */
+  will-change: transform, opacity;
   transition:
     transform 520ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 300ms ease;

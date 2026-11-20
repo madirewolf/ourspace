@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame, type ThreeElements } from "@react-three/fiber";
 import * as THREE from "three";
 import type { AvatarDoc } from "@ourspace/core";
@@ -15,9 +15,27 @@ export type AvatarProps = ThreeElements["group"] & {
   performing?: boolean;
   /** Explicit animation state for authored sequences such as the orbit launch. */
   motion?: AvatarMotion;
+  /**
+   * Build materials with alpha hashing so the caller can fade the avatar out by
+   * lowering `material.opacity` — a screen-door dissolve that needs no sorting.
+   */
+  dissolve?: boolean;
+  /**
+   * Drives walk and run from the caller instead of the clock. Set `phase` from
+   * the distance travelled and `amount` from the speed, so feet never slide
+   * while the character speeds up or slows down.
+   */
+  gait?: RefObject<AvatarGait>;
 };
 
 export type AvatarMotion = "idle" | "walk" | "run" | "jump" | "fall" | "land" | "perform";
+
+export interface AvatarGait {
+  /** Stride cycle in radians: one full cycle is two steps. */
+  phase: number;
+  /** 0 standing still to 1 full stride. */
+  amount: number;
+}
 
 interface Materials {
   skin: THREE.MeshStandardMaterial;
@@ -31,9 +49,15 @@ interface Materials {
   metal: THREE.MeshStandardMaterial;
 }
 
-function makeMaterials(doc: AvatarDoc): Materials {
+function makeMaterials(doc: AvatarDoc, dissolve: boolean): Materials {
   const flat = (color: string, extra?: Partial<THREE.MeshStandardMaterialParameters>) =>
-    new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.82, ...extra });
+    new THREE.MeshStandardMaterial({
+      color,
+      flatShading: true,
+      roughness: 0.82,
+      alphaHash: dissolve,
+      ...extra,
+    });
   return {
     skin: flat(doc.skin),
     hair: flat(doc.hairColor),
@@ -210,9 +234,11 @@ export function Avatar({
   moving = false,
   performing = false,
   motion,
+  dissolve = false,
+  gait,
   ...groupProps
 }: AvatarProps) {
-  const materials = useMemo(() => makeMaterials(doc), [doc]);
+  const materials = useMemo(() => makeMaterials(doc, dissolve), [doc, dissolve]);
   useEffect(
     () => () => Object.values(materials).forEach((material) => material.dispose()),
     [materials],
@@ -263,20 +289,28 @@ export function Avatar({
 
     if (activeMotion === "walk" || activeMotion === "run") {
       const running = activeMotion === "run";
-      const swing = Math.sin(localTime * (running ? 11.2 : 7.1));
-      const stride = running ? 0.82 : 0.5;
+      const driven = gait?.current;
+      const cycle = driven ? driven.phase : localTime * (running ? 11.2 : 7.1);
+      const amount = driven ? Math.min(1, Math.max(0, driven.amount)) : 1;
+      const swing = Math.sin(cycle);
+      const stride = (running ? 0.82 : 0.5) * amount;
       legLX = -swing * stride;
       legRX = swing * stride;
-      shinLX = Math.max(0, swing) * (running ? 0.92 : 0.5);
-      shinRX = Math.max(0, -swing) * (running ? 0.92 : 0.5);
+      // Knees fold on the recovering leg, and a little on the planted one too.
+      shinLX = (Math.max(0, swing) * (running ? 0.98 : 0.5) + (running ? 0.12 : 0)) * amount;
+      shinRX = (Math.max(0, -swing) * (running ? 0.98 : 0.5) + (running ? 0.12 : 0)) * amount;
       footLX = -shinLX * 0.62;
       footRX = -shinRX * 0.62;
-      armLX = swing * (running ? 0.88 : 0.52);
+      armLX = swing * (running ? 0.92 : 0.52) * amount;
       armRX = -armLX;
-      bodyY = Math.abs(swing) * (running ? 0.055 : 0.025);
-      bodyX = running ? 0.13 : 0.035;
-      bodyZ = swing * (running ? 0.025 : 0.012);
-      headX = running ? -0.055 : 0.018;
+      // Arms held a little out from the torso so a pumping arm never clips it.
+      armLZ = running ? 0.1 * amount : 0;
+      armRZ = -armLZ;
+      // Two bounces per cycle: the body lifts on each push-off.
+      bodyY = Math.abs(Math.sin(cycle)) * (running ? 0.06 : 0.025) * amount;
+      bodyX = (running ? 0.16 : 0.035) * amount;
+      bodyZ = swing * (running ? 0.03 : 0.012) * amount;
+      headX = (running ? -0.07 : 0.018) * amount;
       headZ = -bodyZ * 0.6;
     } else if (activeMotion === "jump") {
       const anticipation = 1 - Math.min(1, localTime / 0.24);
@@ -291,20 +325,26 @@ export function Avatar({
       armRX = armLX * 0.86;
       headX = -0.08;
     } else if (activeMotion === "fall") {
-      const drift = Math.sin(localTime * 2.7);
-      bodyX = 0.08 + drift * 0.035;
-      bodyZ = drift * 0.04;
-      armLX = 0.22 + drift * 0.12;
-      armRX = 0.22 - drift * 0.12;
-      armLZ = -0.78;
-      armRZ = 0.78;
-      legLX = 0.18 + drift * 0.12;
-      legRX = -0.12 - drift * 0.1;
-      legLZ = -0.12;
-      legRZ = 0.12;
-      shinLX = 0.28;
-      shinRX = 0.42;
-      headX = -0.12;
+      // Arms thrown up and out, legs paddling: a body in free fall, not a plank.
+      // Positive z swings the left arm (and leg) outward, negative the right.
+      const drift = Math.sin(localTime * 2.3);
+      const flutter = Math.sin(localTime * 7.4);
+      const kick = Math.sin(localTime * 4.2);
+      bodyX = -0.06 + drift * 0.04;
+      bodyZ = drift * 0.05;
+      armLX = -0.3 + flutter * 0.12;
+      armRX = -0.3 - flutter * 0.12;
+      armLZ = 2.05 + drift * 0.16 + flutter * 0.1;
+      armRZ = -(2.05 - drift * 0.16 + flutter * 0.1);
+      legLX = 0.12 + kick * 0.3;
+      legRX = 0.12 - kick * 0.3;
+      legLZ = 0.16;
+      legRZ = -0.16;
+      shinLX = 0.42 + Math.max(0, kick) * 0.42;
+      shinRX = 0.42 + Math.max(0, -kick) * 0.42;
+      footLX = -0.22;
+      footRX = -0.22;
+      headX = 0.2 + drift * 0.04;
       headZ = -drift * 0.06;
     } else if (activeMotion === "land") {
       const impact = Math.exp(-localTime * 4.8);
@@ -316,8 +356,9 @@ export function Avatar({
       shinRX = 0.82 * impact;
       armLX = -0.72 * impact;
       armRX = -0.58 * impact;
-      armLZ = -0.18 * impact;
-      armRZ = 0.18 * impact;
+      // Arms flare out for balance on impact.
+      armLZ = 0.42 * impact;
+      armRZ = -0.42 * impact;
       headX = 0.11 * impact;
     } else if (activeMotion === "perform") {
       const beat = Math.sin(localTime * 5.5);
