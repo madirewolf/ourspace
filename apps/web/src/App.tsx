@@ -8,6 +8,7 @@ import { DiscoveryPage } from "./discovery/DiscoveryPage";
 import { VisitorProfilePage } from "./discovery/VisitorProfilePage";
 import { getDiscoveryCreator } from "./discovery/catalog";
 import { useApp } from "./store";
+import { withTransition } from "./navigation";
 
 export function App() {
   const profile = useApp((s) => s.profile);
@@ -18,10 +19,17 @@ export function App() {
   // Creation must win over the existing-profile route. This also lets a
   // signed-out user deliberately replace the one local account supported in v0.
   if (creating) {
-    return <Onboarding onCancel={() => setCreating(false)} onComplete={() => setCreating(false)} />;
+    return (
+      <Onboarding
+        onCancel={() => withTransition(() => setCreating(false))}
+        onComplete={() => setCreating(false)}
+      />
+    );
   }
   if (!profile || signedOut) {
-    return <AccountGateway profile={profile} onCreate={() => setCreating(true)} />;
+    return (
+      <AccountGateway profile={profile} onCreate={() => withTransition(() => setCreating(true))} />
+    );
   }
   if (screen.name === "gallery") return <GalleryPage moduleId={screen.moduleId} />;
   if (screen.name === "rave") return <RavePage moduleId={screen.moduleId} />;

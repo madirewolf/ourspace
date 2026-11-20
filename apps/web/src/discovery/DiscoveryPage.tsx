@@ -1,13 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { Avatar } from "@ourspace/avatar";
-import { CRAFTS, lerp, smoothstep, type ProfileDoc } from "@ourspace/core";
+import { Avatar, type AvatarGait, type AvatarMotion } from "@ourspace/avatar";
+import { CRAFTS, createRng, lerp, smoothstep, type ProfileDoc } from "@ourspace/core";
 import { AvatarStage } from "../components/AvatarStage";
+import { Prewarm } from "../components/Prewarm";
+import { glowTexture } from "../components/glowTexture";
 import { useApp, type DiscoveryMode } from "../store";
 import { DISCOVERY_CREATORS, sharedCraftCount, type DiscoveryCreator } from "./catalog";
-
-type FlightPhase = "run" | "drop" | "dock" | "arrived";
+import { Spaceship } from "./Spaceship";
+import { useNavigate } from "../navigation";
+import {
+  ARRIVE,
+  COCKPIT_EYE,
+  COCKPIT_LOOK,
+  RUN_START_POINT,
+  SEAT,
+  TAKEOFF_POINT,
+  avatarPose,
+  cameraRig,
+  canopyClosed,
+  phaseAt,
+  planetsArrived,
+  shipPose,
+  type FlightPhase,
+} from "./flightPath";
 
 const MODES: Array<{ id: DiscoveryMode; label: string; mark: string }> = [
   { id: "all", label: "All worlds", mark: "∞" },
@@ -36,10 +53,96 @@ function seededOrder(value: string): number {
   return hash >>> 0;
 }
 
-function StarField() {
+const SKY_DEEP = new THREE.Color("#05040d");
+const SKY_LOBES: Array<{ direction: THREE.Vector3; color: THREE.Color; power: number }> = [
+  {
+    direction: new THREE.Vector3(-0.72, 0.38, -1).normalize(),
+    color: new THREE.Color("#4a1048").multiplyScalar(0.75),
+    power: 6,
+  },
+  {
+    direction: new THREE.Vector3(0.85, -0.22, -0.9).normalize(),
+    color: new THREE.Color("#0a3f48").multiplyScalar(0.75),
+    power: 5,
+  },
+  {
+    direction: new THREE.Vector3(0.1, 0.9, -0.5).normalize(),
+    color: new THREE.Color("#1d1450").multiplyScalar(0.8),
+    power: 4,
+  },
+  {
+    direction: new THREE.Vector3(-0.2, -1, -0.15).normalize(),
+    color: new THREE.Color("#2c0f3e").multiplyScalar(0.8),
+    power: 4,
+  },
+];
+
+/**
+ * Faceted nebula dome: one draw call, per-face colours, so deep space reads as
+ * a painted PS2 skybox instead of a flat black void. Follows the camera so it
+ * always sits at infinity.
+ */
+function NebulaSky() {
+  const sky = useRef<THREE.Mesh>(null);
+  const geometry = useMemo(() => {
+    const value = new THREE.IcosahedronGeometry(60, 5);
+    const position = value.getAttribute("position");
+    const colors = new Float32Array(position.count * 3);
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const color = new THREE.Color();
+    for (let index = 0; index < position.count; index += 3) {
+      a.fromBufferAttribute(position, index);
+      b.fromBufferAttribute(position, index + 1);
+      c.fromBufferAttribute(position, index + 2);
+      const normal = a.add(b).add(c).normalize();
+      color.copy(SKY_DEEP);
+      for (const lobe of SKY_LOBES) {
+        const weight = Math.max(0, normal.dot(lobe.direction)) ** lobe.power;
+        color.r += lobe.color.r * weight;
+        color.g += lobe.color.g * weight;
+        color.b += lobe.color.b * weight;
+      }
+      const grain = Math.sin(index * 12.9898) * 43758.5453;
+      color.multiplyScalar(0.88 + (grain - Math.floor(grain)) * 0.24);
+      for (let vertex = 0; vertex < 3; vertex++) {
+        colors[(index + vertex) * 3] = color.r;
+        colors[(index + vertex) * 3 + 1] = color.g;
+        colors[(index + vertex) * 3 + 2] = color.b;
+      }
+    }
+    value.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    return value;
+  }, []);
+
+  useFrame((state) => {
+    sky.current?.position.copy(state.camera.position);
+  });
+
+  return (
+    <mesh ref={sky} geometry={geometry} renderOrder={-1} frustumCulled={false}>
+      <meshBasicMaterial
+        vertexColors
+        side={THREE.BackSide}
+        fog={false}
+        depthWrite={false}
+        toneMapped={false}
+      />
+    </mesh>
+  );
+}
+
+const COCKPIT_EYE_POINT = new THREE.Vector3(...COCKPIT_EYE);
+
+/**
+ * Distant stars. The flight moves them at a tenth of the camera's speed, so
+ * they read as far away while the camera drops fifteen metres.
+ */
+function StarField({ fieldRef }: { fieldRef: React.RefObject<THREE.Points | null> }) {
   const points = useMemo(() => {
-    const values = new Float32Array(220 * 3);
-    for (let index = 0; index < 220; index++) {
+    const values = new Float32Array(300 * 3);
+    for (let index = 0; index < 300; index++) {
       const a = Math.sin(index * 12.9898) * 43758.5453;
       const b = Math.sin(index * 78.233 + 4.1) * 24634.6345;
       const c = Math.sin(index * 39.425 + 9.7) * 13579.2468;
@@ -50,100 +153,237 @@ function StarField() {
     return values;
   }, []);
 
+  useFrame((state, delta) => {
+    if (!fieldRef.current) return;
+    fieldRef.current.rotation.z += delta * 0.003;
+    fieldRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.07) * 0.018;
+  });
+
   return (
-    <points>
+    <points ref={fieldRef} frustumCulled={false}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[points, 3]} />
       </bufferGeometry>
-      <pointsMaterial color="#d8efff" size={0.045} sizeAttenuation transparent opacity={0.85} />
+      <pointsMaterial color="#d8efff" size={0.052} sizeAttenuation transparent opacity={0.88} />
     </points>
   );
 }
 
+const DUST_COUNT = 520;
+
+/**
+ * Motes fixed in the world around the fall. They are the only thing near the
+ * camera between the ledge and the ship, so they carry the sense of speed.
+ */
+function SpaceDust() {
+  const positions = useMemo(() => {
+    const rng = createRng("orbit-space-dust");
+    const values = new Float32Array(DUST_COUNT * 3);
+    let filled = 0;
+    while (filled < DUST_COUNT) {
+      const x = -20 + rng() * 34;
+      const y = -6 + rng() * 28;
+      const z = -16 + rng() * 28;
+      // Keep the cockpit view clear; dust belongs to the journey.
+      if (x * x + y * y + z * z < 36) continue;
+      values[filled * 3] = x;
+      values[filled * 3 + 1] = y;
+      values[filled * 3 + 2] = z;
+      filled++;
+    }
+    return values;
+  }, []);
+  const map = useMemo(() => glowTexture(), []);
+
+  return (
+    <points frustumCulled={false}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial
+        map={map}
+        color="#bcd6ff"
+        size={0.11}
+        sizeAttenuation
+        transparent
+        opacity={0.75}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        toneMapped={false}
+      />
+    </points>
+  );
+}
+
+const STREAK_COUNT = 64;
+const STREAK_NEAR = -1;
+const STREAK_FAR = -13;
+const STREAK_SPAN = STREAK_NEAR - STREAK_FAR;
+const STREAK_COLOR = new THREE.Color("#a8f8ff");
+const FORWARD = new THREE.Vector3(0, 0, -1);
+
+/**
+ * Air streaks around the camera, laid along the direction of travel and
+ * scrolled by the distance actually covered, so they speed up and slow down
+ * with the fall. Each streak fades in far away and out before it reaches the
+ * lens; nothing pops when one wraps around.
+ */
+function createSpeedLines() {
+  const rng = createRng("orbit-speed-lines");
+  const streaks = Array.from({ length: STREAK_COUNT }, () => {
+    const angle = rng() * Math.PI * 2;
+    const radius = 0.9 + rng() * 4.1;
+    return {
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+      offset: rng() * STREAK_SPAN,
+      length: 0.7 + rng() * 1.5,
+    };
+  });
+  const positions = new Float32Array(STREAK_COUNT * 6);
+  const colors = new Float32Array(STREAK_COUNT * 6);
+  const positionAttribute = new THREE.BufferAttribute(positions, 3).setUsage(
+    THREE.DynamicDrawUsage,
+  );
+  const colorAttribute = new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", positionAttribute);
+  geometry.setAttribute("color", colorAttribute);
+  const material = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+    fog: false,
+  });
+  const object = new THREE.LineSegments(geometry, material);
+  object.frustumCulled = false;
+  object.renderOrder = 2;
+  const heading = new THREE.Quaternion();
+  const direction = new THREE.Vector3();
+  let travel = 0;
+  let aimed = false;
+
+  function update(origin: THREE.Vector3, velocity: THREE.Vector3, delta: number) {
+    const speed = velocity.length();
+    material.opacity = smoothstep(4.8, 7.5, speed) * 0.9;
+    if (speed > 0.5) {
+      heading.setFromUnitVectors(FORWARD, direction.copy(velocity).divideScalar(speed));
+      if (aimed) object.quaternion.slerp(heading, 1 - Math.exp(-delta * 6));
+      else object.quaternion.copy(heading);
+      aimed = true;
+    }
+    object.position.copy(origin);
+    travel += speed * delta * 1.35;
+    if (material.opacity <= 0.001) return;
+    for (let index = 0; index < STREAK_COUNT; index++) {
+      const streak = streaks[index]!;
+      const head = STREAK_FAR + ((streak.offset + travel) % STREAK_SPAN);
+      const tail = head - streak.length;
+      const fade =
+        smoothstep(STREAK_FAR, STREAK_FAR + 3, tail) *
+        (1 - smoothstep(STREAK_NEAR - 2.5, STREAK_NEAR, head));
+      const offset = index * 6;
+      positions[offset] = streak.x;
+      positions[offset + 1] = streak.y;
+      positions[offset + 2] = head;
+      positions[offset + 3] = streak.x;
+      positions[offset + 4] = streak.y;
+      positions[offset + 5] = tail;
+      colors[offset] = STREAK_COLOR.r * fade;
+      colors[offset + 1] = STREAK_COLOR.g * fade;
+      colors[offset + 2] = STREAK_COLOR.b * fade;
+      colors[offset + 3] = STREAK_COLOR.r * fade * 0.12;
+      colors[offset + 4] = STREAK_COLOR.g * fade * 0.12;
+      colors[offset + 5] = STREAK_COLOR.b * fade * 0.12;
+    }
+    positionAttribute.needsUpdate = true;
+    colorAttribute.needsUpdate = true;
+  }
+
+  return {
+    object,
+    update,
+    dispose() {
+      geometry.dispose();
+      material.dispose();
+    },
+  };
+}
+
+/** The profile ledge sits so its far edge is just past where the run ends. */
+const LEDGE_HALF_WIDTH = 5.3;
+const LEDGE_POSITION: [number, number, number] = [
+  TAKEOFF_POINT[0] + 0.3 - LEDGE_HALF_WIDTH,
+  TAKEOFF_POINT[1],
+  TAKEOFF_POINT[2],
+];
+const LEDGE_TILES = [
+  { x: -4.25, color: "#6f35d8", glow: "#ff55ca", tilt: 0.05 },
+  { x: -2.55, color: "#0c8f88", glow: "#54ffdc", tilt: -0.04 },
+  { x: -0.85, color: "#ca4d18", glow: "#ffbd39", tilt: 0.06 },
+  { x: 0.85, color: "#3158a1", glow: "#65a7ff", tilt: -0.05 },
+  { x: 2.55, color: "#a23a7a", glow: "#ff8ad8", tilt: 0.04 },
+  { x: 4.25, color: "#2f7a3c", glow: "#c8ff32", tilt: -0.06 },
+];
+const LEDGE_NOTES = [-4.6, -2.9, -1.2, 0.5, 2.2, 3.9];
+
+/**
+ * Your profile as a floating slab: the moodboard you just left is the runway.
+ * Top face at y = 0, the running line along z = 0, the edge at x = +5.3.
+ */
 function MoodboardLedge() {
   return (
-    <group position={[0, 0.1, 1.25]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <boxGeometry args={[6.8, 4.5, 0.16]} />
-        <meshStandardMaterial color="#11121b" emissive="#2a1342" emissiveIntensity={0.35} />
+    <group position={LEDGE_POSITION}>
+      <mesh position={[0, -0.21, 0.6]}>
+        <boxGeometry args={[LEDGE_HALF_WIDTH * 2, 0.42, 4.4]} />
+        <meshStandardMaterial
+          color="#11121b"
+          emissive="#2a1342"
+          emissiveIntensity={0.35}
+          roughness={0.9}
+          flatShading
+        />
       </mesh>
-      {[-2.2, 0, 2.2].map((x, index) => (
-        <mesh
-          key={x}
-          position={[x, 0.11, 0]}
-          rotation={[-Math.PI / 2, 0, index % 2 ? -0.06 : 0.06]}
-        >
-          <planeGeometry args={[1.75, 2.65]} />
+      {LEDGE_TILES.map((tile) => (
+        <mesh key={tile.x} position={[tile.x, 0.012, 0.35]} rotation={[-Math.PI / 2, 0, tile.tilt]}>
+          <planeGeometry args={[1.42, 2.2]} />
           <meshStandardMaterial
-            color={["#6f35d8", "#0c8f88", "#ca4d18"][index]}
-            emissive={["#ff55ca", "#54ffdc", "#ffbd39"][index]}
+            color={tile.color}
+            emissive={tile.glow}
             emissiveIntensity={0.18}
             roughness={0.82}
           />
         </mesh>
       ))}
-      <mesh position={[0, -0.05, -2.28]}>
-        <boxGeometry args={[7, 0.24, 0.22]} />
-        <meshStandardMaterial color="#54ffdc" emissive="#54ffdc" emissiveIntensity={1.4} />
-      </mesh>
-    </group>
-  );
-}
-
-function Spaceship({
-  shipRef,
-  exteriorRef,
-}: {
-  shipRef: React.RefObject<THREE.Group | null>;
-  exteriorRef: React.RefObject<THREE.Group | null>;
-}) {
-  return (
-    <group ref={shipRef}>
-      <group ref={exteriorRef}>
-        <mesh position={[0, 0.25, 0.4]} rotation={[Math.PI / 2, 0, 0]}>
-          <coneGeometry args={[1.65, 4.6, 6]} />
-          <meshStandardMaterial color="#242637" metalness={0.72} roughness={0.3} flatShading />
-        </mesh>
-        <mesh position={[-2.15, 0, 0.8]} rotation={[0.12, 0, -0.18]}>
-          <boxGeometry args={[2.9, 0.15, 1.55]} />
-          <meshStandardMaterial color="#3a315a" metalness={0.55} roughness={0.4} />
-        </mesh>
-        <mesh position={[2.15, 0, 0.8]} rotation={[0.12, 0, 0.18]}>
-          <boxGeometry args={[2.9, 0.15, 1.55]} />
-          <meshStandardMaterial color="#3a315a" metalness={0.55} roughness={0.4} />
-        </mesh>
-        <mesh position={[0, -0.15, 2.35]}>
-          <cylinderGeometry args={[0.78, 0.92, 0.3, 8]} />
-          <meshStandardMaterial color="#090a12" emissive="#c8ff32" emissiveIntensity={1.3} />
-        </mesh>
-      </group>
-
-      {/* Cockpit elements remain visible when the camera moves inside. */}
-      <mesh position={[0, 0.56, 2.35]} rotation={[-0.28, 0, 0]}>
-        <boxGeometry args={[4.4, 0.18, 1.05]} />
-        <meshStandardMaterial color="#11131d" metalness={0.7} roughness={0.28} />
-      </mesh>
-      <mesh position={[-2.15, 1.43, 1.3]} rotation={[0, 0, -0.17]}>
-        <boxGeometry args={[0.15, 2.4, 0.15]} />
-        <meshStandardMaterial color="#343747" metalness={0.8} />
-      </mesh>
-      <mesh position={[2.15, 1.43, 1.3]} rotation={[0, 0, 0.17]}>
-        <boxGeometry args={[0.15, 2.4, 0.15]} />
-        <meshStandardMaterial color="#343747" metalness={0.8} />
-      </mesh>
-      <mesh position={[0, 2.45, 0.72]}>
-        <boxGeometry args={[4.05, 0.13, 0.14]} />
-        <meshStandardMaterial color="#343747" metalness={0.8} />
-      </mesh>
-      {[-1.4, -0.85, -0.3, 0.3, 0.85, 1.4].map((x, index) => (
-        <mesh key={x} position={[x, 0.72, 1.98]} rotation={[-0.28, 0, 0]}>
-          <boxGeometry args={[0.34, 0.035, 0.2]} />
-          <meshBasicMaterial
-            color={index % 3 === 0 ? "#ff4dd8" : index % 3 === 1 ? "#54ffdc" : "#c8ff32"}
-            toneMapped={false}
+      {LEDGE_NOTES.map((x, index) => (
+        <mesh
+          key={x}
+          position={[x, 0.2, -1.42]}
+          rotation={[-0.12, index % 2 ? 0.08 : -0.06, index % 2 ? 0.12 : -0.08]}
+        >
+          <boxGeometry args={[0.78, 0.38, 0.05]} />
+          <meshStandardMaterial
+            color={index % 2 ? "#c8ff32" : "#ff4dd8"}
+            emissive={index % 2 ? "#708f18" : "#7d1f69"}
+            emissiveIntensity={0.35}
+            flatShading
           />
         </mesh>
       ))}
+      {/* The edge of your page: a cyan lip marks where the run ends. */}
+      <mesh position={[LEDGE_HALF_WIDTH, 0.03, 0.6]}>
+        <boxGeometry args={[0.14, 0.12, 4.4]} />
+        <meshStandardMaterial color="#1b6f63" emissive="#54ffdc" emissiveIntensity={0.85} />
+      </mesh>
+      <mesh position={[0, -0.03, 2.8]}>
+        <boxGeometry args={[LEDGE_HALF_WIDTH * 2, 0.08, 0.06]} />
+        <meshStandardMaterial color="#ff4dd8" emissive="#ff4dd8" emissiveIntensity={1.1} />
+      </mesh>
+      {/* Lifted clear of the running line: a rim of cyan on the leap, not a white-out. */}
+      <pointLight position={[4.4, 2.6, 1.9]} color="#54ffdc" intensity={4} distance={7} />
     </group>
   );
 }
@@ -216,14 +456,40 @@ function Planet({
           flatShading
         />
       </mesh>
-      {selected && <pointLight color={creator.planetAccent} intensity={5} distance={4.2} />}
     </group>
   );
 }
 
+/**
+ * Critically damped follow (the classic SmoothDamp). It rounds off the one
+ * corner in the avatar's path, the kick of the leap, without the lag of a
+ * plain lerp.
+ */
+function smoothDamp(
+  current: THREE.Vector3,
+  target: THREE.Vector3,
+  velocity: THREE.Vector3,
+  smoothTime: number,
+  delta: number,
+) {
+  const omega = 2 / smoothTime;
+  const x = omega * delta;
+  const decay = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  for (let axis = 0; axis < 3; axis++) {
+    const change = current.getComponent(axis) - target.getComponent(axis);
+    const pull = (velocity.getComponent(axis) + omega * change) * delta;
+    velocity.setComponent(axis, (velocity.getComponent(axis) - omega * pull) * decay);
+    current.setComponent(axis, target.getComponent(axis) + (change + pull) * decay);
+  }
+}
+
+/** A replayed visit starts here: ship parked, canopy shut, planets in place. */
+const SETTLED_TIME = ARRIVE + 0.6;
+
 function FlightScene({
   profile,
   skipIntro,
+  avatarMotion,
   creators,
   selectedId,
   onSelect,
@@ -231,119 +497,201 @@ function FlightScene({
 }: {
   profile: ProfileDoc;
   skipIntro: boolean;
+  avatarMotion: AvatarMotion;
   creators: DiscoveryCreator[];
   selectedId: string;
   onSelect: (id: string) => void;
   onPhase: (phase: FlightPhase) => void;
 }) {
   const avatar = useRef<THREE.Group>(null);
-  const deck = useRef<THREE.Group>(null);
   const ship = useRef<THREE.Group>(null);
-  const shipExterior = useRef<THREE.Group>(null);
-  const start = useRef<number | null>(null);
+  const canopyLeft = useRef<THREE.Group>(null);
+  const canopyRight = useRef<THREE.Group>(null);
+  const stars = useRef<THREE.Points>(null);
+  const planetField = useRef<THREE.Group>(null);
+  const selectionLight = useRef<THREE.PointLight>(null);
+  const gait = useRef<AvatarGait>({ phase: 0, amount: 0 });
+  const flightTime = useRef<number | null>(null);
+  const avatarFade = useRef(1);
   const lastPhase = useRef<FlightPhase | null>(null);
-  const lookAt = useMemo(() => new THREE.Vector3(), []);
+  const speedLines = useMemo(() => createSpeedLines(), []);
+  useEffect(() => () => speedLines.dispose(), [speedLines]);
+  const rig = useMemo(
+    () => ({
+      focus: new THREE.Vector3(),
+      focusVelocity: new THREE.Vector3(),
+      target: new THREE.Vector3(),
+      eye: new THREE.Vector3(),
+      look: new THREE.Vector3(),
+      cockpitEye: new THREE.Vector3(),
+      cockpitLook: new THREE.Vector3(),
+      velocity: new THREE.Vector3(),
+      seat: new THREE.Vector3(),
+      head: new THREE.Vector3(),
+      seatTurn: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI),
+      lightTarget: new THREE.Vector3(),
+      accent: new THREE.Color(),
+    }),
+    [],
+  );
+  const selectedIndex = creators.findIndex((creator) => creator.id === selectedId);
+  const accent = creators[selectedIndex]?.planetAccent ?? "#ffffff";
 
-  useFrame((state) => {
-    if (start.current === null) start.current = state.clock.elapsedTime;
-    const elapsed = skipIntro ? 99 : state.clock.elapsedTime - start.current;
+  useFrame((state, rawDelta) => {
     const avatarGroup = avatar.current;
     const shipGroup = ship.current;
-    const exteriorGroup = shipExterior.current;
-    const deckGroup = deck.current;
+    if (!avatarGroup || !shipGroup || !canopyLeft.current || !canopyRight.current) return;
+    // One long frame (a tab switch, a GC pause) must not skip a beat of the flight.
+    const delta = Math.min(rawDelta, 1 / 30);
+    const firstFrame = flightTime.current === null;
+    const time = firstFrame ? (skipIntro ? SETTLED_TIME : 0) : flightTime.current! + delta;
+    flightTime.current = time;
     const camera = state.camera;
 
-    let phase: FlightPhase;
-    if (elapsed < 2.35) phase = "run";
-    else if (elapsed < 4.7) phase = "drop";
-    else if (elapsed < 7.4) phase = "dock";
-    else phase = "arrived";
+    const phase = phaseAt(time);
     if (phase !== lastPhase.current) {
       lastPhase.current = phase;
       onPhase(phase);
     }
 
-    if (!avatarGroup || !shipGroup || !deckGroup || !exteriorGroup) return;
+    // ---- Ship ----
+    const shipNow = shipPose(time);
+    shipGroup.position.set(...shipNow.position);
+    shipGroup.rotation.set(shipNow.pitch, 0, shipNow.roll);
+    shipGroup.updateMatrixWorld();
+    const closed = canopyClosed(time);
+    canopyLeft.current.rotation.z = lerp(1.05, 0, closed);
+    canopyRight.current.rotation.z = lerp(-1.05, 0, closed);
 
-    if (phase === "run") {
-      const progress = smoothstep(0, 2.35, elapsed);
-      avatarGroup.visible = true;
-      avatarGroup.position.set(
-        lerp(-2.4, 2.55, progress),
-        0.2 + Math.sin(progress * Math.PI) * 0.12,
-        0.4,
-      );
-      avatarGroup.rotation.set(0, Math.PI / 2, 0);
-      deckGroup.position.y = 0;
-      shipGroup.position.y = -5.2;
-      exteriorGroup.visible = true;
-      camera.position.set(lerp(-0.7, 0.55, progress), 2.5, lerp(7.2, 5.9, progress));
-      lookAt.set(avatarGroup.position.x * 0.24, 0.9, 0.1);
-      camera.lookAt(lookAt);
-    } else if (phase === "drop") {
-      const progress = smoothstep(2.35, 4.7, elapsed);
-      avatarGroup.visible = true;
-      avatarGroup.position.set(
-        2.55 - progress * 1.6,
-        lerp(0.2, -4.1, progress * progress),
-        lerp(0.4, 0, progress),
-      );
-      avatarGroup.rotation.set(progress * 1.6, Math.PI / 2 + progress * 2.2, progress * 0.45);
-      deckGroup.position.y = lerp(0, 4.5, progress);
-      shipGroup.position.y = -5.2;
-      exteriorGroup.visible = true;
-      camera.position.set(
-        lerp(0.55, 0.15, progress),
-        lerp(2.5, -1.2, progress),
-        lerp(5.9, 6.7, progress),
-      );
-      lookAt.copy(avatarGroup.position);
-      camera.lookAt(lookAt);
-    } else if (phase === "dock") {
-      const progress = smoothstep(4.7, 7.4, elapsed);
-      avatarGroup.visible = progress < 0.22;
-      avatarGroup.position.y = -4.1;
-      deckGroup.position.y = 4.5;
-      shipGroup.position.y = lerp(-5.2, 0, progress);
-      exteriorGroup.visible = progress < 0.78;
-      camera.position.set(0, lerp(-1.2, 1.48, progress), lerp(6.7, 4.75, progress));
-      lookAt.set(0, lerp(-3.8, 0.8, progress), lerp(0, -8.5, progress));
-      camera.lookAt(lookAt);
+    // ---- Avatar ----
+    const pose = avatarPose(time);
+    gait.current.phase = pose.gaitPhase;
+    gait.current.amount = pose.gaitAmount;
+    if (pose.seated) {
+      shipGroup.localToWorld(rig.seat.set(...SEAT));
+      avatarGroup.position.copy(rig.seat);
+      avatarGroup.quaternion.copy(shipGroup.quaternion).multiply(rig.seatTurn);
     } else {
-      avatarGroup.visible = false;
-      deckGroup.position.y = 4.5;
-      shipGroup.position.y = 0;
-      exteriorGroup.visible = false;
-      const time = state.clock.elapsedTime;
-      camera.position.set(
-        Math.sin(time * 0.35) * 0.045,
-        1.48 + Math.sin(time * 0.48) * 0.025,
-        4.75,
+      avatarGroup.position.set(...pose.position);
+      avatarGroup.rotation.set(pose.pitch, pose.yaw, pose.roll, "YXZ");
+    }
+    rig.velocity.set(...pose.velocity);
+
+    // ---- Camera: orbit the avatar on keyed spherical coordinates, then
+    // hand over to the cockpit eye riding inside the ship ----
+    rig.target.copy(avatarGroup.position);
+    if (firstFrame) {
+      rig.focus.copy(rig.target);
+      rig.focusVelocity.copy(rig.velocity);
+    } else {
+      smoothDamp(rig.focus, rig.target, rig.focusVelocity, 0.08, delta);
+    }
+    const lens = cameraRig(time);
+    const level = Math.cos(lens.elevation);
+    rig.eye
+      .set(Math.sin(lens.azimuth) * level, Math.sin(lens.elevation), Math.cos(lens.azimuth) * level)
+      .multiplyScalar(lens.distance)
+      .add(rig.focus);
+    rig.look.copy(rig.focus);
+    rig.look.y += lens.aim;
+    if (lens.cockpit > 0) {
+      // A pilot's idle sway, so the parked view still breathes.
+      shipGroup.localToWorld(
+        rig.cockpitEye.set(
+          COCKPIT_EYE[0] + Math.sin(time * 0.34) * 0.035,
+          COCKPIT_EYE[1] + Math.sin(time * 0.46) * 0.018,
+          COCKPIT_EYE[2],
+        ),
       );
-      lookAt.set(0, 0.55, -10.2);
-      camera.lookAt(lookAt);
+      shipGroup.localToWorld(
+        rig.cockpitLook.set(
+          COCKPIT_LOOK[0] + Math.sin(time * 0.22) * 0.06,
+          COCKPIT_LOOK[1],
+          COCKPIT_LOOK[2],
+        ),
+      );
+      rig.eye.lerp(rig.cockpitEye, lens.cockpit);
+      rig.look.lerp(rig.cockpitLook, lens.cockpit);
+      // Arc up over the avatar's head on the way in, never through it.
+      rig.eye.y += Math.sin(Math.PI * lens.cockpit) * 0.85;
+    }
+    camera.position.copy(rig.eye);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(rig.look);
+    camera.rotateZ(lens.roll);
+    if (camera instanceof THREE.PerspectiveCamera && camera.fov !== lens.fov) {
+      camera.fov = lens.fov;
+      camera.updateProjectionMatrix();
+    }
+
+    // The camera becomes the pilot: dissolve the avatar as the lens nears its head.
+    let fade = 1;
+    if (pose.seated) {
+      rig.head.set(0, 1.65, 0).applyQuaternion(avatarGroup.quaternion).add(avatarGroup.position);
+      fade = smoothstep(1.2, 2.6, camera.position.distanceTo(rig.head));
+    }
+    if (fade !== avatarFade.current) {
+      avatarFade.current = fade;
+      avatarGroup.traverse((object) => {
+        const material = (object as THREE.Mesh).material;
+        if (material && !Array.isArray(material)) material.opacity = fade;
+      });
+    }
+    avatarGroup.visible = fade > 0.02;
+
+    // ---- Things that hang off the camera ----
+    stars.current?.position.copy(camera.position).sub(COCKPIT_EYE_POINT).multiplyScalar(0.9);
+    speedLines.update(camera.position, rig.velocity, delta);
+
+    // ---- Planets drift in out of the haze as the ship settles ----
+    const field = planetField.current;
+    if (field) {
+      const arrival = planetsArrived(time);
+      field.visible = arrival > 0;
+      field.position.z = lerp(-26, 0, arrival);
+      field.scale.setScalar(lerp(0.55, 1, arrival));
+
+      // One permanent light glides between planets: mounting a light per
+      // selection would change the light count and recompile every shader.
+      const light = selectionLight.current;
+      const planetGroup = field.children[selectedIndex];
+      if (light) {
+        if (planetGroup) planetGroup.getWorldPosition(rig.lightTarget);
+        if (light.intensity < 0.05) light.position.copy(rig.lightTarget);
+        else light.position.lerp(rig.lightTarget, 1 - Math.exp(-delta * 9));
+        light.color.lerp(rig.accent.set(accent), 1 - Math.exp(-delta * 8));
+        light.intensity = THREE.MathUtils.damp(
+          light.intensity,
+          planetGroup && field.visible ? 5 * arrival : 0,
+          8,
+          delta,
+        );
+      }
     }
   });
 
   return (
     <>
       <color attach="background" args={["#030308"]} />
-      <fog attach="fog" args={["#080510", 14, 34]} />
-      <ambientLight intensity={0.32} color="#7460bb" />
-      <directionalLight position={[4, 7, 6]} color="#d7f6ff" intensity={1.65} />
+      <fog attach="fog" args={["#0a0614", 15, 40]} />
+      <NebulaSky />
+      <ambientLight intensity={0.38} color="#7460bb" />
+      <hemisphereLight args={["#8197ff", "#170c25", 0.7]} />
+      <directionalLight position={[4, 7, 6]} color="#d7f6ff" intensity={1.8} />
       <pointLight position={[-5, 2, -8]} color="#ff4dd8" intensity={11} distance={13} />
       <pointLight position={[5, -1, -10]} color="#54ffdc" intensity={10} distance={13} />
-      <StarField />
+      <StarField fieldRef={stars} />
+      <SpaceDust />
+      <primitive object={speedLines.object} />
 
-      <group ref={deck}>
-        <MoodboardLedge />
+      <MoodboardLedge />
+      <group ref={avatar} position={RUN_START_POINT}>
+        <Avatar doc={profile.avatar} motion={avatarMotion} gait={gait} dissolve />
       </group>
-      <group ref={avatar} position={[-2.4, 0.2, 0.4]}>
-        <Avatar doc={profile.avatar} moving />
-      </group>
-      <Spaceship shipRef={ship} exteriorRef={shipExterior} />
+      <Spaceship rootRef={ship} canopyLeftRef={canopyLeft} canopyRightRef={canopyRight} />
+      <pointLight ref={selectionLight} intensity={0} distance={4.2} />
 
-      <group>
+      <group ref={planetField} visible={skipIntro} scale={skipIntro ? 1 : 0.55}>
         {creators.map((creator, index) => (
           <Planet
             key={creator.id}
@@ -370,13 +718,21 @@ function reasonFor(creator: DiscoveryCreator, ownCrafts: string[], mode: Discove
 
 export function DiscoveryPage({ resume = false }: { resume?: boolean }) {
   const profile = useApp((state) => state.profile);
-  const setScreen = useApp((state) => state.setScreen);
+  const setScreen = useNavigate();
   const mode = useApp((state) => state.discovery.mode);
   const query = useApp((state) => state.discovery.query);
   const randomSeed = useApp((state) => state.discovery.randomSeed);
   const selectedId = useApp((state) => state.discovery.selectedId);
   const updateDiscovery = useApp((state) => state.updateDiscovery);
-  const [phase, setPhase] = useState<FlightPhase>(resume ? "arrived" : "run");
+  const [reducedMotion] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  const skipSequence = resume || reducedMotion;
+  const [phase, setPhase] = useState<FlightPhase>(skipSequence ? "arrived" : "depart");
+  // The flight clock starts on the first rendered frame, which waits until every
+  // shader is compiled, so the sequence never stalls mid-flight.
+  const [warm, setWarm] = useState(false);
+  const handleWarm = useCallback(() => setWarm(true), []);
   const setSelectedId = useCallback(
     (id: string) => updateDiscovery({ selectedId: id }),
     [updateDiscovery],
@@ -419,6 +775,16 @@ export function DiscoveryPage({ resume = false }: { resume?: boolean }) {
 
   const selected = creators.find((creator) => creator.id === selectedId) ?? creators[0];
   const arrived = phase === "arrived";
+  const avatarMotion: AvatarMotion =
+    phase === "depart" || phase === "sprint"
+      ? "run"
+      : phase === "leap"
+        ? "jump"
+        : phase === "fall"
+          ? "fall"
+          : phase === "catch" || phase === "merge"
+            ? "land"
+            : "idle";
   const selectRelative = useCallback(
     (direction: -1 | 1) => {
       if (!creators.length) return;
@@ -453,23 +819,37 @@ export function DiscoveryPage({ resume = false }: { resume?: boolean }) {
   if (!profile) return null;
 
   return (
-    <main className={`discovery${arrived ? " arrived" : " in-flight"}`}>
+    <main className={`discovery${arrived ? " arrived" : " in-flight"}${warm ? " warm" : ""}`}>
       <Canvas
-        camera={{ fov: 48, position: [0, 2.5, 7.2] }}
-        dpr={[1, 1.45]}
-        gl={{ antialias: false }}
+        className="flight-canvas"
+        frameloop={warm ? "always" : "never"}
+        camera={{ fov: 47, near: 0.06, far: 80, position: [-0.85, 2.68, 7.75] }}
+        dpr={[1, 1.5]}
+        gl={{ antialias: true, powerPreference: "high-performance" }}
+        onCreated={({ gl }) => {
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.06;
+        }}
       >
         <FlightScene
           profile={profile}
-          skipIntro={resume}
+          skipIntro={skipSequence}
+          avatarMotion={avatarMotion}
           creators={creators}
           selectedId={selected?.id ?? ""}
           onSelect={setSelectedId}
           onPhase={setPhase}
         />
+        <Prewarm onReady={handleWarm} />
       </Canvas>
 
       <div className="discovery-ui">
+        <div className="flight-cinematic-frame" aria-hidden="true">
+          <i />
+          <i />
+          <span>OS // COURIER 01</span>
+          <b>◇</b>
+        </div>
         <header className="flight-status">
           <button
             type="button"
@@ -481,13 +861,19 @@ export function DiscoveryPage({ resume = false }: { resume?: boolean }) {
           <div>
             <span className="flight-pulse" />
             <b>
-              {phase === "run"
-                ? "LEAVING PROFILE"
-                : phase === "drop"
-                  ? "GRAVITY ASSIST"
-                  : phase === "dock"
-                    ? "ENTERING COCKPIT"
-                    : "ORBIT STABLE"}
+              {phase === "depart"
+                ? "VECTOR LOCKED"
+                : phase === "sprint"
+                  ? "LEAVING PROFILE"
+                  : phase === "leap"
+                    ? "EDGE CLEARED"
+                    : phase === "fall"
+                      ? "GRAVITY ASSIST"
+                      : phase === "catch"
+                        ? "SHIP INTERCEPT"
+                        : phase === "merge"
+                          ? "ENTERING COCKPIT"
+                          : "ORBIT STABLE"}
             </b>
           </div>
           <small>

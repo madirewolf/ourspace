@@ -1,4 +1,4 @@
-export { Avatar, type AvatarProps } from "./Avatar";
+export { Avatar, type AvatarGait, type AvatarMotion, type AvatarProps } from "./Avatar";
 export {
   SKIN_TONES,
   HAIR_COLORS,

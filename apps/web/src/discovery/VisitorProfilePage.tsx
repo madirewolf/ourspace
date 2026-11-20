@@ -7,8 +7,8 @@ import {
   type TrackItem,
 } from "@ourspace/core";
 import { AvatarStage } from "../components/AvatarStage";
-import { useApp } from "../store";
 import { getDiscoveryCreator } from "./catalog";
+import { useNavigate } from "../navigation";
 
 function favoriteTrack(modules: ModuleDoc[]): { track: TrackItem; module: MusicModule } | null {
   for (const module of modules) {
@@ -20,7 +20,7 @@ function favoriteTrack(modules: ModuleDoc[]): { track: TrackItem; module: MusicM
 }
 
 export function VisitorProfilePage({ profileId }: { profileId: string }) {
-  const setScreen = useApp((state) => state.setScreen);
+  const setScreen = useNavigate();
   const creator = getDiscoveryCreator(profileId);
   const [following, setFollowing] = useState(creator?.relation === "friend");
 
